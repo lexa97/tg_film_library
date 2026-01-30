@@ -17,7 +17,7 @@ async def main() -> None:
     settings = get_settings()
     await init_db(settings.DATABASE_URL)
 
-    bot = Bot(token=settings.BOT_TOKEN, parse_mode=ParseMode.HTML)
+    bot = Bot(token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp.message.outer_middleware(DbSessionMiddleware())
     dp.callback_query.outer_middleware(DbSessionMiddleware())
