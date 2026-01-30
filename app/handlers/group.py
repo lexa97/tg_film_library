@@ -1,6 +1,7 @@
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, ContentType
+from aiogram.filters.magic import MagicData
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +22,7 @@ router = Router()
 
 @router.message(Command("newgroup"), F.text)
 @router.message(Command("newgroup"))
-async def cmd_newgroup(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def cmd_newgroup(message: Message, state: FSMContext, session: AsyncSession = MagicData()) -> None:
     await get_or_create_user(
         session,
         message.from_user.id,
@@ -52,7 +53,7 @@ async def process_group_name(message: Message, state: FSMContext, session: Async
 
 
 @router.message(F.contact)
-async def on_contact(message: Message, session: AsyncSession) -> None:
+async def on_contact(message: Message, session: AsyncSession = MagicData()) -> None:
     if not message.contact:
         return
     await get_or_create_user(

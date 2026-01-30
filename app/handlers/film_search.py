@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.filters.magic import MagicData
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +14,7 @@ PAGE_SIZE = 5
 
 
 @router.message(F.text, ~F.text.startswith("/"))
-async def on_text_search(message: Message, session: AsyncSession) -> None:
+async def on_text_search(message: Message, session: AsyncSession = MagicData()) -> None:
     query = (message.text or "").strip()
     if not query or len(query) < 2:
         return
@@ -37,15 +38,15 @@ async def on_text_search(message: Message, session: AsyncSession) -> None:
         kb = btn_confirm_film(data["external_id"], data["source"])
         if poster:
             try:
-                await message.answer_photo(poster, caption=text, parse_mode="HTML", reply_markup=kb)
+                await message.answer_photo(poster, caption=text, reply_markup=kb)
             except Exception:
-                await message.answer(text, parse_mode="HTML", reply_markup=kb)
+                await message.answer(text, reply_markup=kb)
         else:
-            await message.answer(text, parse_mode="HTML", reply_markup=kb)
+            await message.answer(text, reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("confirm:"))
-async def on_confirm_film(callback: CallbackQuery, session: AsyncSession) -> None:
+async def on_confirm_film(callback: CallbackQuery, session: AsyncSession = MagicData()) -> None:
     parts = callback.data.split(":", 2)
     if len(parts) < 3:
         await callback.answer("Ошибка")

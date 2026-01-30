@@ -1,5 +1,6 @@
 from aiogram import Router
 from aiogram.filters import CommandStart
+from aiogram.filters.magic import MagicData
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,7 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, session: AsyncSession) -> None:
+async def cmd_start(message: Message, session: AsyncSession = MagicData()) -> None:
     user = await get_or_create_user(
         session,
         telegram_user_id=message.from_user.id,

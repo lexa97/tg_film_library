@@ -1,5 +1,6 @@
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.filters.magic import MagicData
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,12 +14,12 @@ PAGE_SIZE = 10
 
 
 @router.message(Command("list"))
-async def cmd_list(message: Message, session: AsyncSession) -> None:
+async def cmd_list(message: Message, session: AsyncSession = MagicData()) -> None:
     await _send_list(message.chat.id, message.bot, session, message.from_user.id, page=0)
 
 
 @router.callback_query(F.data == "mylist")
-async def cb_mylist(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_mylist(callback: CallbackQuery, session: AsyncSession = MagicData()) -> None:
     await callback.answer()
     await _send_list(callback.message.chat.id, callback.bot, session, callback.from_user.id, page=0)
     try:
@@ -28,7 +29,7 @@ async def cb_mylist(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("page:"))
-async def cb_page(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_page(callback: CallbackQuery, session: AsyncSession = MagicData()) -> None:
     try:
         page = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
@@ -97,18 +98,17 @@ async def cb_film_detail(callback: CallbackQuery, session: AsyncSession) -> None
             await callback.message.answer_photo(
                 film.poster_url,
                 caption=text,
-                parse_mode="HTML",
                 reply_markup=kb,
             )
         except Exception:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            await callback.message.answer(text, reply_markup=kb)
     else:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.answer(text, reply_markup=kb)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("watched:"))
-async def cb_watched(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_watched(callback: CallbackQuery, session: AsyncSession = MagicData()) -> None:
     try:
         gf_id = int(callback.data.split(":", 1)[1])
     except (IndexError, ValueError):
