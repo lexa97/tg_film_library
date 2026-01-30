@@ -1,0 +1,13 @@
+.venv/
+venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/
+alembic/versions/*.py
+!alembic/versions/__init__.py
