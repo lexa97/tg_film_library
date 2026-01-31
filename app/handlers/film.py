@@ -52,6 +52,15 @@ async def search_film(message: Message, session: AsyncSession):
     
     results = await film_service.search_films(query, language="ru")
     
+    # Check for API error
+    if results is None:
+        await message.answer(
+            "❌ Не удалось выполнить поиск. Возможно, проблемы с подключением к базе данных фильмов.\n"
+            "Попробуйте позже."
+        )
+        return
+    
+    # Check for empty results
     if not results:
         await message.answer(
             f"😕 По запросу «{query}» ничего не найдено.\n"

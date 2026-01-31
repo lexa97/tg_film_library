@@ -35,7 +35,7 @@ class FilmService:
         self, 
         query: str, 
         language: str = "ru"
-    ) -> list[FilmSearchResult]:
+    ) -> Optional[list[FilmSearchResult]]:
         """Search films using provider.
         
         Args:
@@ -43,7 +43,7 @@ class FilmService:
             language: Language code
             
         Returns:
-            List of search results
+            List of search results, or None if API error occurred
         """
         logger.info(f"Searching films: '{query}' (language: {language})")
         return await self.search_provider.search(query, language)

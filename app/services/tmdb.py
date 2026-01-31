@@ -31,7 +31,7 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
         self, 
         query: str, 
         language: str = "ru"
-    ) -> list[FilmSearchResult]:
+    ) -> Optional[list[FilmSearchResult]]:
         """Search films in TMDB.
         
         Args:
@@ -39,7 +39,7 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
             language: Language code
             
         Returns:
-            List of up to 5 search results
+            List of up to 5 search results, or None if API error occurred
         """
         try:
             async with httpx.AsyncClient() as client:
@@ -70,10 +70,10 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 
         except httpx.HTTPError as e:
             logger.error(f"TMDB search error: {e}")
-            return []
+            return None
         except Exception as e:
             logger.error(f"Unexpected error in TMDB search: {e}")
-            return []
+            return None
     
     async def get_details(
         self,

@@ -2,6 +2,7 @@
 
 from typing import Optional
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import GroupMember, RoleEnum
@@ -34,7 +35,9 @@ class GroupMemberRepository(BaseRepository[GroupMember]):
             GroupMember or None if not found
         """
         result = await self.session.execute(
-            select(GroupMember).where(
+            select(GroupMember)
+            .options(selectinload(GroupMember.group), selectinload(GroupMember.user))
+            .where(
                 and_(
                     GroupMember.user_id == user_id,
                     GroupMember.group_id == group_id
@@ -53,7 +56,9 @@ class GroupMemberRepository(BaseRepository[GroupMember]):
             List of group memberships
         """
         result = await self.session.execute(
-            select(GroupMember).where(GroupMember.user_id == user_id)
+            select(GroupMember)
+            .options(selectinload(GroupMember.group), selectinload(GroupMember.user))
+            .where(GroupMember.user_id == user_id)
         )
         return list(result.scalars().all())
     
@@ -67,7 +72,9 @@ class GroupMemberRepository(BaseRepository[GroupMember]):
             List of group members
         """
         result = await self.session.execute(
-            select(GroupMember).where(GroupMember.group_id == group_id)
+            select(GroupMember)
+            .options(selectinload(GroupMember.group), selectinload(GroupMember.user))
+            .where(GroupMember.group_id == group_id)
         )
         return list(result.scalars().all())
     
@@ -87,8 +94,16 @@ class GroupMemberRepository(BaseRepository[GroupMember]):
         Returns:
             Created group member
         """
-        return await self.create(
+        membership = await self.create(
             group_id=group_id,
             user_id=user_id,
             role=role
         )
+        
+        # Перезагружаем со связанными объектами
+        result = await self.session.execute(
+            select(GroupMember)
+            .options(selectinload(GroupMember.group), selectinload(GroupMember.user))
+            .where(GroupMember.id == membership.id)
+        )
+        return result.scalar_one()

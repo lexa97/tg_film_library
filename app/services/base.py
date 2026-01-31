@@ -14,7 +14,7 @@ class BaseFilmSearchProvider(ABC):
         self, 
         query: str, 
         language: str = "ru"
-    ) -> list[FilmSearchResult]:
+    ) -> Optional[list[FilmSearchResult]]:
         """Search films by query.
         
         Args:
@@ -22,7 +22,7 @@ class BaseFilmSearchProvider(ABC):
             language: Language code (e.g., 'ru', 'en')
             
         Returns:
-            List of search results (up to 5)
+            List of search results (up to 5), or None if API error occurred
         """
         pass
     
