@@ -51,3 +51,4 @@ htmlcov/
 
 # Alembic
 alembic/versions/*.pyc
+QUICKSTART.md

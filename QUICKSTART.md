@@ -7,7 +7,7 @@
 Убедитесь, что файл `.env` содержит корректные токены:
 
 ```env
-BOT_TOKEN=7120928590:AAFgIB62YiaTi1hE_fZfntAk6b7-VrKrurE
+BOT_TOKEN=dfdfsdfs
 TMDB_API_KEY=eyJhbGci...ваш_ключ...
 DATABASE_URL=postgresql+asyncpg://tgfilm:tgfilm_secret@10.1.20.24:15432/tg_film_library
 ```

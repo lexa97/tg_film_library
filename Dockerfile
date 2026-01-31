@@ -29,8 +29,8 @@ while ! pg_isready -h db -p 5432 -U $POSTGRES_USER; do\n\
 done\n\
 echo "PostgreSQL started"\n\
 \n\
-echo "Running migrations..."\n\
-alembic upgrade head\n\
+echo "Initializing database..."\n\
+python initdb.py\n\
 \n\
 echo "Starting bot..."\n\
 python -m app.main\n\
