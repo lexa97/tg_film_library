@@ -19,9 +19,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Создаём enum для ролей
-    role_enum = sa.Enum('ADMIN', 'MEMBER', name='roleenum')
-    role_enum.create(op.get_bind(), checkfirst=True)
+    # Создаём enum для ролей (используем checkfirst для идемпотентности)
+    # Для PostgreSQL нужно создать enum вручную через SQL
+    connection = op.get_bind()
+    
+    # Проверяем, существует ли enum
+    result = connection.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'roleenum')"
+    ))
+    enum_exists = result.scalar()
+    
+    if not enum_exists:
+        connection.execute(sa.text("CREATE TYPE roleenum AS ENUM ('ADMIN', 'MEMBER')"))
+    
+    role_enum = sa.Enum('ADMIN', 'MEMBER', name='roleenum', create_type=False)
     
     # Таблица users
     op.create_table(
