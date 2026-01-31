@@ -1,93 +1,206 @@
-from typing import Any
+"""TMDB film search provider."""
 
+import logging
+from typing import Optional, Any
 import httpx
 
+from app.services.base import BaseFilmSearchProvider
+from app.services.dto import FilmSearchResult
 from app.config import get_settings
 
 
-TMDB_BASE = "https://api.themoviedb.org/3"
-POSTER_BASE = "https://image.tmdb.org/t/p/w500"
+logger = logging.getLogger(__name__)
 
 
-async def search_multi(query: str, language: str = "ru-RU", page: int = 1) -> list[dict[str, Any]]:
-    """Поиск фильмов и сериалов. Возвращает до 5 результатов."""
-    settings = get_settings()
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{TMDB_BASE}/search/multi",
-            params={
-                "api_key": settings.TMDB_API_KEY,
-                "query": query,
-                "language": language,
-                "page": page,
-                "include_adult": False,
-            },
-            timeout=10.0,
-        )
-        r.raise_for_status()
-        data = r.json()
-    results = data.get("results", [])
-    # Только movie и tv
-    filtered = [x for x in results if x.get("media_type") in ("movie", "tv")][:5]
-    return filtered
-
-
-def format_poster_url(path: str | None) -> str | None:
-    if not path:
-        return None
-    return f"{POSTER_BASE}{path}"
-
-
-async def fetch_movie_or_tv(external_id: str, media_type: str) -> dict[str, Any] | None:
-    """Получить данные фильма/сериала по id для сохранения в БД."""
-    settings = get_settings()
-    endpoint = "movie" if media_type == "movie" else "tv"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{TMDB_BASE}/{endpoint}/{external_id}",
-            params={
-                "api_key": settings.TMDB_API_KEY,
-                "language": "ru-RU",
-            },
-            timeout=10.0,
-        )
-        if r.status_code != 200:
+class TMDBFilmSearch(BaseFilmSearchProvider):
+    """TMDB API film search provider."""
+    
+    BASE_URL = "https://api.themoviedb.org/3"
+    IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
+    
+    def __init__(self):
+        """Initialize TMDB search provider."""
+        settings = get_settings()
+        self.api_key = settings.tmdb_api_key
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "accept": "application/json"
+        }
+    
+    async def search(
+        self, 
+        query: str, 
+        language: str = "ru"
+    ) -> list[FilmSearchResult]:
+        """Search films in TMDB.
+        
+        Args:
+            query: Search query
+            language: Language code
+            
+        Returns:
+            List of up to 5 search results
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/search/multi",
+                    params={
+                        "query": query,
+                        "language": language,
+                        "include_adult": "false"
+                    },
+                    headers=self.headers,
+                    timeout=10.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                results = []
+                for item in data.get("results", [])[:5]:
+                    # Only process movies and TV shows
+                    if item.get("media_type") not in ["movie", "tv"]:
+                        continue
+                    
+                    result = self._parse_search_result(item)
+                    if result:
+                        results.append(result)
+                
+                return results
+                
+        except httpx.HTTPError as e:
+            logger.error(f"TMDB search error: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error in TMDB search: {e}")
+            return []
+    
+    async def get_details(
+        self,
+        external_id: str,
+        media_type: str
+    ) -> Optional[FilmSearchResult]:
+        """Get film details from TMDB.
+        
+        Args:
+            external_id: TMDB ID
+            media_type: 'movie' or 'tv'
+            
+        Returns:
+            Film details or None
+        """
+        try:
+            endpoint = f"{self.BASE_URL}/{media_type}/{external_id}"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    endpoint,
+                    params={"language": "ru"},
+                    headers=self.headers,
+                    timeout=10.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                return self._parse_details(data, media_type)
+                
+        except httpx.HTTPError as e:
+            logger.error(f"TMDB get details error: {e}")
             return None
-        item = r.json()
-    title = item.get("title") or item.get("name") or "Без названия"
-    title_original = item.get("original_title") or item.get("original_name")
-    release_date = item.get("release_date") or item.get("first_air_date") or ""
-    year = int(release_date[:4]) if len(release_date) >= 4 else None
-    poster_path = item.get("poster_path")
-    overview = (item.get("overview") or "")[:2000]
-    return {
-        "external_id": str(item["id"]),
-        "source": "tmdb",
-        "title": title,
-        "title_original": title_original,
-        "year": year,
-        "description": overview or None,
-        "poster_url": format_poster_url(poster_path),
-        "media_type": media_type,
-    }
-
-
-def result_to_film_data(item: dict[str, Any]) -> dict[str, Any]:
-    """Преобразует элемент ответа TMDB в данные для сохранения в БД."""
-    media_type = item.get("media_type", "movie")
-    title = item.get("title") or item.get("name") or "Без названия"
-    title_original = item.get("original_title") or item.get("original_name")
-    release_date = item.get("release_date") or item.get("first_air_date") or ""
-    year = int(release_date[:4]) if len(release_date) >= 4 else None
-    poster_path = item.get("poster_path")
-    overview = (item.get("overview") or "")[:2000]
-    return {
-        "external_id": str(item["id"]),
-        "source": "tmdb",
-        "title": title,
-        "title_original": title_original,
-        "year": year,
-        "description": overview or None,
-        "poster_url": format_poster_url(poster_path),
-        "media_type": media_type,
-    }
+        except Exception as e:
+            logger.error(f"Unexpected error in TMDB get details: {e}")
+            return None
+    
+    def _parse_search_result(self, item: dict[str, Any]) -> Optional[FilmSearchResult]:
+        """Parse search result item.
+        
+        Args:
+            item: TMDB API result item
+            
+        Returns:
+            Parsed result or None
+        """
+        try:
+            media_type = item.get("media_type")
+            
+            # Get title based on media type
+            if media_type == "movie":
+                title = item.get("title", "")
+                original_title = item.get("original_title")
+                release_date = item.get("release_date", "")
+            else:  # tv
+                title = item.get("name", "")
+                original_title = item.get("original_name")
+                release_date = item.get("first_air_date", "")
+            
+            # Extract year from release date
+            year = None
+            if release_date:
+                try:
+                    year = int(release_date.split("-")[0])
+                except (ValueError, IndexError):
+                    pass
+            
+            # Get poster URL
+            poster_path = item.get("poster_path")
+            poster_url = f"{self.IMAGE_BASE_URL}{poster_path}" if poster_path else None
+            
+            return FilmSearchResult(
+                external_id=str(item.get("id")),
+                source="tmdb",
+                title=title,
+                title_original=original_title,
+                year=year,
+                description=item.get("overview"),
+                poster_url=poster_url,
+                media_type=media_type
+            )
+            
+        except Exception as e:
+            logger.error(f"Error parsing TMDB result: {e}")
+            return None
+    
+    def _parse_details(self, data: dict[str, Any], media_type: str) -> Optional[FilmSearchResult]:
+        """Parse detailed film data.
+        
+        Args:
+            data: TMDB API response data
+            media_type: 'movie' or 'tv'
+            
+        Returns:
+            Parsed details or None
+        """
+        try:
+            if media_type == "movie":
+                title = data.get("title", "")
+                original_title = data.get("original_title")
+                release_date = data.get("release_date", "")
+            else:  # tv
+                title = data.get("name", "")
+                original_title = data.get("original_name")
+                release_date = data.get("first_air_date", "")
+            
+            year = None
+            if release_date:
+                try:
+                    year = int(release_date.split("-")[0])
+                except (ValueError, IndexError):
+                    pass
+            
+            poster_path = data.get("poster_path")
+            poster_url = f"{self.IMAGE_BASE_URL}{poster_path}" if poster_path else None
+            
+            return FilmSearchResult(
+                external_id=str(data.get("id")),
+                source="tmdb",
+                title=title,
+                title_original=original_title,
+                year=year,
+                description=data.get("overview"),
+                poster_url=poster_url,
+                media_type=media_type
+            )
+            
+        except Exception as e:
+            logger.error(f"Error parsing TMDB details: {e}")
+            return None

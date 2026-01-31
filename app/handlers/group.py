@@ -1,105 +1,99 @@
-from aiogram import F, Router
-from aiogram.filters import Command
-from aiogram.filters.magic import MagicData
-from aiogram.types import Message
+"""Group management handlers."""
+
+import logging
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.user_group import (
-    get_or_create_user,
-    get_user_groups,
-    get_user_group,
-    create_group,
-    get_user_by_telegram_id,
-    add_member_to_group,
-    is_group_admin,
-    get_group_member_telegram_ids,
-)
+from app.services.user_group import UserGroupService
 from app.states.group import CreateGroupStates
+from app.keyboards.inline import build_main_menu_keyboard
 
+
+logger = logging.getLogger(__name__)
 router = Router()
 
 
-@router.message(Command("newgroup"), F.text)
-@router.message(Command("newgroup"))
-async def cmd_newgroup(message: Message, state: FSMContext, session: AsyncSession = MagicData()) -> None:
-    await get_or_create_user(
-        session,
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.first_name,
-        message.from_user.last_name,
+@router.callback_query(F.data == "create_group")
+async def start_group_creation(callback: CallbackQuery, state: FSMContext):
+    """Start group creation flow.
+    
+    Args:
+        callback: Callback query
+        state: FSM state
+    """
+    await callback.message.edit_text(
+        "➕ <b>Создание группы</b>\n\n"
+        "Введите название группы:",
+        parse_mode="HTML"
     )
+    
     await state.set_state(CreateGroupStates.waiting_for_name)
-    await message.answer("Введите название группы:")
+    await callback.answer()
 
 
-@router.message(CreateGroupStates.waiting_for_name, F.text)
-async def process_group_name(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    name = (message.text or "").strip()
-    if not name:
-        await message.answer("Название не может быть пустым. Введите название группы:")
-        return
-    user = await get_or_create_user(
-        session,
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.first_name,
-        message.from_user.last_name,
-    )
-    group = await create_group(session, name, user.id)
-    await state.clear()
-    await message.answer(f"Группа «{group.name}» создана. Добавляйте участников, отправляя боту контакт (Поделиться контактом).")
-
-
-@router.message(F.contact)
-async def on_contact(message: Message, session: AsyncSession = MagicData()) -> None:
-    if not message.contact:
-        return
-    await get_or_create_user(
-        session,
-        message.from_user.id,
-        message.from_user.username,
-        message.from_user.first_name,
-        message.from_user.last_name,
-    )
-    group = await get_user_group(session, message.from_user.id)
-    if not group:
-        await message.answer("Сначала создайте группу (команда /newgroup) или вы должны быть в группе.")
-        return
-    admin = await is_group_admin(session, group.id, message.from_user.id)
-    if not admin:
-        await message.answer("Добавлять участников может только админ группы.")
-        return
-
-    contact = message.contact
-    telegram_id = getattr(contact, "user_id", None)
-    if telegram_id is None:
+@router.message(CreateGroupStates.waiting_for_name)
+async def process_group_name(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession
+):
+    """Process group name and create group.
+    
+    Args:
+        message: Telegram message
+        state: FSM state
+        session: Database session
+    """
+    group_name = message.text.strip()
+    
+    if not group_name or len(group_name) > 255:
         await message.answer(
-            "Не удалось получить id пользователя из контакта. "
-            "Попросите участника нажать /start у бота, затем отправьте контакт через «Поделиться контактом» из его профиля."
+            "❌ Название группы должно быть от 1 до 255 символов. Попробуйте ещё раз:"
         )
         return
-
-    new_user = await get_user_by_telegram_id(session, telegram_id)
-    if not new_user:
+    
+    # Get or create user
+    user = message.from_user
+    service = UserGroupService(session)
+    db_user = await service.get_or_create_user(
+        telegram_user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name
+    )
+    
+    # Check if user already in a group
+    existing_membership = await service.get_user_group(db_user.id)
+    if existing_membership:
         await message.answer(
-            "Этот пользователь ещё не нажимал /start у бота. Попросите его сначала запустить бота."
+            "❌ Вы уже состоите в группе. В текущей версии можно быть только в одной группе."
         )
+        await state.clear()
         return
-
-    member = await add_member_to_group(session, group.id, new_user.id)
-    if member is None:
-        await message.answer("Пользователь уже в группе.")
-        return
-
-    await message.answer(f"Пользователь {new_user.first_name or new_user.username or 'ID ' + str(telegram_id)} добавлен в группу «{group.name}».")
-
+    
+    # Create group
     try:
-        await message.bot.send_message(
-            telegram_id,
-            f"Вас добавили в группу «{group.name}». Используйте /list для списка фильмов, "
-            "или отправьте название фильма для поиска и добавления."
+        group = await service.create_group(
+            name=group_name,
+            admin_user_id=db_user.id
         )
-    except Exception:
-        pass
+        
+        await message.answer(
+            f"✅ Группа <b>«{group.name}»</b> успешно создана!\n\n"
+            f"Вы можете добавлять участников, отправляя боту их контакты "
+            f"(Поделиться контактом из профиля пользователя).\n\n"
+            f"Начните искать фильмы, просто отправив название!",
+            parse_mode="HTML",
+            reply_markup=build_main_menu_keyboard(has_group=True)
+        )
+        
+        await state.clear()
+        
+    except Exception as e:
+        logger.error(f"Error creating group: {e}")
+        await message.answer(
+            "❌ Произошла ошибка при создании группы. Попробуйте позже."
+        )
+        await state.clear()

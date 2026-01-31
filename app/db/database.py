@@ -1,40 +1,33 @@
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+"""Database session management."""
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from typing import AsyncGenerator
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from app.db.models import Base
-
-# Для Alembic нужен sync URL без +asyncpg при создании миграций — используем echo=False в engine
-def get_engine(database_url: str, echo: bool = False):
-    return create_async_engine(
-        database_url,
-        echo=echo,
-        pool_pre_ping=True,
-    )
+from app.config import get_settings
 
 
-async_session_maker: async_sessionmaker[AsyncSession] | None = None
+settings = get_settings()
+
+# Create async engine
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,  # Set to True for SQL query logging
+    future=True
+)
+
+# Create session factory
+async_session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
 
 
-async def init_db(database_url: str) -> None:
-    global async_session_maker
-    engine = get_engine(database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-
-@asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    if async_session_maker is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
+    """Get database session.
+    
+    Yields:
+        AsyncSession: Database session
+    """
     async with async_session_maker() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+        yield session

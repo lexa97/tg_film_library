@@ -1,83 +1,96 @@
-from sqlalchemy import select
+"""Film service."""
+
+import logging
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.db.models import Film, GroupFilm, Watched
-
-
-async def find_film_by_external(session: AsyncSession, external_id: str, source: str) -> Film | None:
-    result = await session.execute(
-        select(Film).where(Film.external_id == external_id, Film.source == source)
-    )
-    return result.scalar_one_or_none()
+from app.db.repositories import FilmRepository
+from app.db.models import Film
+from app.services.base import BaseFilmSearchProvider
+from app.services.dto import FilmSearchResult, FilmCreate
 
 
-async def create_film(session: AsyncSession, film_data: dict) -> Film:
-    film = Film(**film_data)
-    session.add(film)
-    await session.flush()
-    return film
+logger = logging.getLogger(__name__)
 
 
-async def add_film_to_group(
-    session: AsyncSession,
-    group_id: int,
-    film_id: int,
-    added_by_user_id: int,
-) -> GroupFilm:
-    gf = GroupFilm(group_id=group_id, film_id=film_id, added_by_user_id=added_by_user_id)
-    session.add(gf)
-    await session.flush()
-    return gf
-
-
-async def get_group_films(
-    session: AsyncSession,
-    group_id: int,
-    search: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[tuple[GroupFilm, Film, bool]]:
-    q = (
-        select(GroupFilm, Film)
-        .join(Film, GroupFilm.film_id == Film.id)
-        .where(GroupFilm.group_id == group_id)
-        .order_by(GroupFilm.created_at.desc())
-    )
-    if search and search.strip():
-        q = q.where(Film.title.ilike(f"%{search.strip()}%"))
-    q = q.offset(offset).limit(limit)
-    result = await session.execute(q)
-    rows = result.all()
-    group_film_ids = [gf.id for gf, _ in rows]
-    watched_result = await session.execute(
-        select(Watched.group_film_id).where(Watched.group_film_id.in_(group_film_ids))
-    )
-    watched_ids = set(watched_result.scalars().all())
-    return [(gf, film, gf.id in watched_ids) for gf, film in rows]
-
-
-async def get_group_film_by_id(session: AsyncSession, group_film_id: int, group_id: int) -> tuple[GroupFilm, Film] | None:
-    result = await session.execute(
-        select(GroupFilm, Film)
-        .join(Film, GroupFilm.film_id == Film.id)
-        .where(GroupFilm.id == group_film_id, GroupFilm.group_id == group_id)
-    )
-    row = result.one_or_none()
-    return row
-
-
-async def mark_as_watched(session: AsyncSession, group_film_id: int, user_id: int | None = None) -> Watched:
-    result = await session.execute(select(Watched).where(Watched.group_film_id == group_film_id))
-    existing = result.scalar_one_or_none()
-    if existing:
-        return existing
-    w = Watched(group_film_id=group_film_id, marked_by_user_id=user_id)
-    session.add(w)
-    await session.flush()
-    return w
-
-
-async def is_watched(session: AsyncSession, group_film_id: int) -> bool:
-    result = await session.execute(select(Watched).where(Watched.group_film_id == group_film_id))
-    return result.scalar_one_or_none() is not None
+class FilmService:
+    """Service for film operations."""
+    
+    def __init__(
+        self, 
+        session: AsyncSession,
+        search_provider: BaseFilmSearchProvider
+    ):
+        """Initialize service.
+        
+        Args:
+            session: Database session
+            search_provider: Film search provider (e.g., TMDB)
+        """
+        self.session = session
+        self.film_repo = FilmRepository(session)
+        self.search_provider = search_provider
+    
+    async def search_films(
+        self, 
+        query: str, 
+        language: str = "ru"
+    ) -> list[FilmSearchResult]:
+        """Search films using provider.
+        
+        Args:
+            query: Search query
+            language: Language code
+            
+        Returns:
+            List of search results
+        """
+        logger.info(f"Searching films: '{query}' (language: {language})")
+        return await self.search_provider.search(query, language)
+    
+    async def get_or_create_film(self, film_data: FilmCreate) -> Film:
+        """Get existing film or create new one.
+        
+        Args:
+            film_data: Film data
+            
+        Returns:
+            Film instance
+        """
+        # Check if film exists
+        existing = await self.film_repo.get_by_external_id(
+            external_id=film_data.external_id,
+            source=film_data.source
+        )
+        
+        if existing:
+            logger.info(f"Film already exists: {film_data.external_id}")
+            return existing
+        
+        # Create new film
+        logger.info(f"Creating new film: {film_data.title}")
+        return await self.film_repo.create_film(
+            external_id=film_data.external_id,
+            source=film_data.source,
+            title=film_data.title,
+            title_original=film_data.title_original,
+            year=film_data.year,
+            description=film_data.description,
+            poster_url=film_data.poster_url
+        )
+    
+    async def get_film_details(
+        self,
+        external_id: str,
+        media_type: str
+    ) -> Optional[FilmSearchResult]:
+        """Get detailed film information.
+        
+        Args:
+            external_id: External film ID
+            media_type: Media type ('movie' or 'tv')
+            
+        Returns:
+            Film details or None
+        """
+        return await self.search_provider.get_details(external_id, media_type)

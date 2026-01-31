@@ -1,74 +1,61 @@
-from unittest.mock import AsyncMock, MagicMock
-from typing import AsyncGenerator
+"""Test configuration and fixtures."""
 
 import pytest
-from aiogram import Bot
-from aiogram.types import User as TgUser, Chat, Message as TgMessage, Contact
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
+
+from app.db.models import Base
 
 
 @pytest.fixture
-def mock_bot() -> Bot:
-    """Мок бота Telegram."""
-    bot = MagicMock(spec=Bot)
-    bot.send_message = AsyncMock()
-    bot.send_chat_action = AsyncMock()
-    bot.send_photo = AsyncMock()
-    return bot
-
-
-@pytest.fixture
-def mock_session() -> AsyncSession:
-    """Мок сессии БД."""
-    session = MagicMock(spec=AsyncSession)
-    session.execute = AsyncMock()
-    session.add = MagicMock()
-    session.flush = AsyncMock()
-    session.commit = AsyncMock()
-    session.rollback = AsyncMock()
-    session.close = AsyncMock()
-    return session
-
-
-@pytest.fixture
-def telegram_user() -> TgUser:
-    """Тестовый пользователь Telegram."""
-    return TgUser(
-        id=12345,
-        is_bot=False,
-        first_name="Test",
-        last_name="User",
-        username="testuser",
+async def db_session():
+    """Create test database session.
+    
+    Yields:
+        AsyncSession: Test database session
+    """
+    # Use in-memory SQLite for tests
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=NullPool,
+        echo=False
     )
+    
+    # Create tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Create session
+    async_session = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
+    
+    async with async_session() as session:
+        yield session
+    
+    # Drop tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    
+    await engine.dispose()
 
 
 @pytest.fixture
-def telegram_chat() -> Chat:
-    """Тестовый чат."""
-    return Chat(id=12345, type="private")
-
-
-@pytest.fixture
-def mock_message(mock_bot: Bot, telegram_user: TgUser, telegram_chat: Chat) -> TgMessage:
-    """Мок сообщения Telegram."""
-    message = MagicMock(spec=TgMessage)
-    message.message_id = 1
-    message.from_user = telegram_user
-    message.chat = telegram_chat
-    message.bot = mock_bot
-    message.answer = AsyncMock()
-    message.answer_photo = AsyncMock()
-    message.text = None
-    message.contact = None
-    return message
-
-
-@pytest.fixture
-def mock_contact() -> Contact:
-    """Мок контакта."""
-    contact = MagicMock(spec=Contact)
-    contact.user_id = 67890
-    contact.first_name = "New"
-    contact.last_name = "Member"
-    contact.phone_number = "+1234567890"
-    return contact
+def mock_tmdb_search_results():
+    """Mock TMDB search results."""
+    from app.services.dto import FilmSearchResult
+    
+    return [
+        FilmSearchResult(
+            external_id="550",
+            source="tmdb",
+            title="Бойцовский клуб",
+            title_original="Fight Club",
+            year=1999,
+            description="Сотрудник страховой компании страдает хронической бессонницей...",
+            poster_url="https://image.tmdb.org/t/p/w500/test.jpg",
+            media_type="movie"
+        )
+    ]

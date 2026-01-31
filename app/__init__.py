@@ -1,1 +1,3 @@
-# tg_film_library
+"""Telegram Film Library Bot."""
+
+__version__ = "0.1.0"

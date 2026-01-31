@@ -1,28 +1,31 @@
-from collections.abc import Awaitable, Callable
-from typing import Any
+"""Database session middleware."""
 
+from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import async_session_maker
 
 
-class DbSessionMiddleware(BaseMiddleware):
+class DatabaseMiddleware(BaseMiddleware):
+    """Middleware to provide database session to handlers."""
+    
     async def __call__(
         self,
-        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
-        data: dict[str, Any],
+        data: Dict[str, Any]
     ) -> Any:
-        if async_session_maker is None:
-            return await handler(event, data)
+        """Process update with database session.
+        
+        Args:
+            handler: Handler function
+            event: Telegram event
+            data: Handler data
+            
+        Returns:
+            Handler result
+        """
         async with async_session_maker() as session:
             data["session"] = session
-            try:
-                result = await handler(event, data)
-                await session.commit()
-                return result
-            except Exception:
-                await session.rollback()
-                raise
+            return await handler(event, data)
