@@ -34,22 +34,24 @@ class ProwlarrService:
         Returns:
             Resolution string (e.g., '1080p', '2160p') or None
         """
-        # Common patterns: 1080p, 720p, 2160p, 4K, etc.
-        patterns = [
-            r'\b(2160p|4K)\b',
-            r'\b(1080p)\b',
-            r'\b(720p)\b',
-            r'\b(480p)\b'
-        ]
+        # Normalize title to uppercase for easier matching
+        title_upper = title.upper()
         
-        for pattern in patterns:
-            match = re.search(pattern, title, re.IGNORECASE)
-            if match:
-                res = match.group(1)
-                # Normalize 4K to 2160p
-                if res.upper() == '4K':
-                    return '2160p'
-                return res.lower()
+        # Check for 4K / 2160p
+        if re.search(r'\b(2160P|4K|UHD)\b', title_upper):
+            return '2160p'
+        
+        # Check for 1080p
+        if re.search(r'\b(1080P|FULLHD|FHD|1920X1080)\b', title_upper):
+            return '1080p'
+        
+        # Check for 720p
+        if re.search(r'\b(720P|HD|1280X720)\b', title_upper):
+            return '720p'
+        
+        # Check for 480p / SD
+        if re.search(r'\b(480P|SD|DVD)\b', title_upper):
+            return '480p'
         
         return None
     
@@ -67,10 +69,17 @@ class ProwlarrService:
         
         filtered = []
         for torrent in torrents:
-            if torrent.resolution:
-                quality = quality_order.get(torrent.resolution, 0)
+            # If resolution is not detected, include it by default
+            # (it might be HD but we couldn't parse it from the title)
+            if not torrent.resolution:
+                logger.debug(f"Resolution not detected for: {torrent.title[:50]}... - including by default")
+                filtered.append(torrent)
+            else:
+                quality = quality_order.get(torrent.resolution, 2)  # Default to 1080p if unknown
                 if quality >= min_quality:
                     filtered.append(torrent)
+                else:
+                    logger.debug(f"Filtered out {torrent.resolution}: {torrent.title[:50]}...")
         
         return filtered
     
@@ -103,7 +112,8 @@ class ProwlarrService:
                     f"{self.base_url}/api/v1/search",
                     params={
                         "query": query,
-                        "type": "search"
+                        "type": "search",
+                        "categories": "2000,5000"  # Movies (2000) and TV (5000)
                     },
                     headers={
                         "X-Api-Key": self.api_key
