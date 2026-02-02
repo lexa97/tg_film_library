@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     # TMDB API
     tmdb_api_key: str
     
+    # Prowlarr API
+    prowlarr_url: str
+    prowlarr_api_key: str
+    
+    # Proxy (опционально, для обхода блокировок)
+    # Формат: http://user:pass@host:port или socks5://host:port
+    proxy_url: str | None = None
+    
     # Database
     database_url: str
     

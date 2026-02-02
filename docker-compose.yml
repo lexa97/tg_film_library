@@ -20,23 +20,43 @@ services:
     networks:
       - film_library_network
 
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: tg_film_library_prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Moscow
+    volumes:
+      - prowlarr_config:/config
+    ports:
+      - "9696:9696"
+    restart: unless-stopped
+    networks:
+      - film_library_network
+
   bot:
     build: .
     container_name: tg_film_library_bot
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       TMDB_API_KEY: ${TMDB_API_KEY}
+      PROWLARR_URL: ${PROWLARR_URL:-http://prowlarr:9696}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY}
       DATABASE_URL: postgresql+asyncpg://tgfilm:tgfilm_secret@db:5432/tg_film_library
       POSTGRES_USER: tgfilm
     depends_on:
       db:
         condition: service_healthy
+      prowlarr:
+        condition: service_started
     restart: unless-stopped
     networks:
       - film_library_network
 
 volumes:
   postgres_data:
+  prowlarr_config:
 
 networks:
   film_library_network:

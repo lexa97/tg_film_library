@@ -12,6 +12,7 @@ from app.services.group_film import GroupFilmService
 from app.services.notification import NotificationService
 from app.services.tmdb import TMDBFilmSearch
 from app.keyboards.inline import build_film_list_keyboard, build_film_detail_keyboard
+from app.keyboards.reply import build_main_reply_keyboard
 from app.config import get_settings
 
 
@@ -24,7 +25,8 @@ async def show_film_list(
     message: Message,
     session: AsyncSession,
     page: int = 0,
-    edit: bool = False
+    edit: bool = False,
+    from_user = None
 ):
     """Show film list for user's group.
     
@@ -33,8 +35,9 @@ async def show_film_list(
         session: Database session
         page: Page number (0-indexed)
         edit: Whether to edit message instead of sending new
+        from_user: User object (optional, for callbacks)
     """
-    user = message.from_user
+    user = from_user or message.from_user
     
     # Get user and group
     user_service = UserGroupService(session)
@@ -67,6 +70,9 @@ async def show_film_list(
         offset=page * settings.films_per_page
     )
     
+    # Подготавливаем Reply-клавиатуру для быстрого доступа
+    reply_keyboard = build_main_reply_keyboard(has_group=True)
+    
     if total == 0:
         text = (
             f"📋 <b>Список группы «{group.name}»</b>\n\n"
@@ -75,7 +81,15 @@ async def show_film_list(
         if edit:
             await message.edit_text(text, parse_mode="HTML")
         else:
+            # Устанавливаем Reply-клавиатуру через временное сообщение
+            temp_msg = await message.answer("📱", reply_markup=reply_keyboard)
+            # Отправляем основное сообщение
             await message.answer(text, parse_mode="HTML")
+            # Удаляем техническое сообщение
+            try:
+                await temp_msg.delete()
+            except Exception:
+                pass
         return
     
     total_pages = math.ceil(total / settings.films_per_page)
@@ -86,12 +100,22 @@ async def show_film_list(
         f"Выберите фильм для просмотра деталей:"
     )
     
-    keyboard = build_film_list_keyboard(films, page, total_pages)
+    inline_keyboard = build_film_list_keyboard(films, page, total_pages)
     
     if edit:
-        await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        # При редактировании используем только inline-клавиатуру
+        await message.edit_text(text, parse_mode="HTML", reply_markup=inline_keyboard)
     else:
-        await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        # При новом сообщении: устанавливаем Reply-клавиатуру
+        # Сначала отправляем короткое сообщение с Reply-клавиатурой
+        temp_msg = await message.answer("📱", reply_markup=reply_keyboard)
+        # Затем список с inline-кнопками
+        await message.answer(text, parse_mode="HTML", reply_markup=inline_keyboard)
+        # Удаляем техническое сообщение (Reply-клавиатура останется)
+        try:
+            await temp_msg.delete()
+        except Exception:
+            pass  # Игнорируем если не удалось удалить
 
 
 @router.callback_query(F.data == "list")
@@ -102,7 +126,15 @@ async def callback_list(callback: CallbackQuery, session: AsyncSession):
         callback: Callback query
         session: Database session
     """
-    await show_film_list(callback.message, session, page=0, edit=True)
+    # Удаляем старое сообщение и отправляем новое
+    # (т.к. предыдущее может быть с фото)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass  # Игнорируем если не удалось удалить
+    
+    # Передаем пользователя из callback, а не из удаленного сообщения
+    await show_film_list(callback.message, session, page=0, edit=False, from_user=callback.from_user)
     await callback.answer()
 
 
@@ -115,7 +147,8 @@ async def callback_list_page(callback: CallbackQuery, session: AsyncSession):
         session: Database session
     """
     page = int(callback.data.split(":")[1])
-    await show_film_list(callback.message, session, page=page, edit=True)
+    # Передаем пользователя из callback для правильной идентификации
+    await show_film_list(callback.message, session, page=page, edit=True, from_user=callback.from_user)
     await callback.answer()
 
 
@@ -156,7 +189,12 @@ async def callback_film_detail(callback: CallbackQuery, session: AsyncSession):
     if is_watched:
         text += "\n\n✅ <b>Просмотрено</b>"
     
-    keyboard = build_film_detail_keyboard(group_film_id, is_watched)
+    keyboard = build_film_detail_keyboard(
+        group_film_id, 
+        is_watched, 
+        film.title, 
+        film.year
+    )
     
     # Send with poster if available
     if film.poster_url:
@@ -229,7 +267,12 @@ async def callback_mark_watched(callback: CallbackQuery, session: AsyncSession, 
         film = group_film.film
         
         # Update keyboard
-        keyboard = build_film_detail_keyboard(group_film_id, is_watched=True)
+        keyboard = build_film_detail_keyboard(
+            group_film_id, 
+            is_watched=True, 
+            film_title=film.title, 
+            film_year=film.year
+        )
         
         # Update message
         text = callback.message.caption if callback.message.caption else callback.message.text
@@ -283,3 +326,29 @@ async def callback_noop(callback: CallbackQuery):
         callback: Callback query
     """
     await callback.answer()
+
+
+@router.message(F.text == "📋 Мой список")
+async def reply_my_list(message: Message, session: AsyncSession):
+    """Handle '📋 Мой список' reply button.
+    
+    Args:
+        message: Telegram message
+        session: Database session
+    """
+    await show_film_list(message, session, page=0, edit=False)
+
+
+@router.message(F.text == "🔍 Найти фильм")
+async def reply_search_film(message: Message):
+    """Handle '🔍 Найти фильм' reply button.
+    
+    Args:
+        message: Telegram message
+    """
+    await message.answer(
+        "🔍 <b>Поиск фильма</b>\n\n"
+        "Просто отправьте мне название фильма или сериала, "
+        "и я найду его в базе TMDB!",
+        parse_mode="HTML"
+    )

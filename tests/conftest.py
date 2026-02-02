@@ -1,23 +1,25 @@
 """Test configuration and fixtures."""
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import StaticPool
 
-from app.db.models import Base
+from app.db.models import Base, User, Group, GroupMember, Film, GroupFilm, Watched
 
 
-@pytest.fixture
-async def db_session():
-    """Create test database session.
+@pytest_asyncio.fixture(scope="function")
+async def db_engine():
+    """Create test database engine.
     
     Yields:
-        AsyncSession: Test database session
+        AsyncEngine: Test database engine
     """
-    # Use in-memory SQLite for tests
+    # Use in-memory SQLite for tests with StaticPool to keep connection alive
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
-        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
         echo=False
     )
     
@@ -25,21 +27,35 @@ async def db_session():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    # Create session
-    async_session = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False
-    )
-    
-    async with async_session() as session:
-        yield session
+    yield engine
     
     # Drop tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(db_engine):
+    """Create test database session.
+    
+    Args:
+        db_engine: Test database engine
+        
+    Yields:
+        AsyncSession: Test database session
+    """
+    # Create session
+    async_session = async_sessionmaker(
+        db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
+    
+    async with async_session() as session:
+        yield session
+        await session.rollback()
 
 
 @pytest.fixture

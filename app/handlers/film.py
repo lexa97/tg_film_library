@@ -10,8 +10,10 @@ from app.services.film import FilmService
 from app.services.group_film import GroupFilmService
 from app.services.notification import NotificationService
 from app.services.tmdb import TMDBFilmSearch
+from app.services.prowlarr import ProwlarrService
 from app.services.dto import FilmCreate
-from app.keyboards.inline import build_film_confirm_keyboard
+from app.keyboards.inline import build_film_confirm_keyboard, build_torrent_list_keyboard
+from app.config import get_settings
 
 
 logger = logging.getLogger(__name__)
@@ -201,3 +203,114 @@ async def confirm_film(callback: CallbackQuery, session: AsyncSession, bot: Bot)
     except Exception as e:
         logger.error(f"Error adding film to group: {e}")
         await callback.answer("❌ Ошибка при добавлении фильма", show_alert=True)
+
+
+# Storage for torrent search results (temporary, per callback)
+# Format: {message_id: [TorrentResult, ...]}
+_torrent_cache: dict[int, list] = {}
+
+
+@router.callback_query(F.data.startswith("magnet_search:"))
+async def callback_magnet_search(callback: CallbackQuery, session: AsyncSession):
+    """Search for torrents via Prowlarr.
+    
+    Args:
+        callback: Callback query
+        session: Database session
+    """
+    # Parse callback data: magnet_search:title:year
+    parts = callback.data.split(":", 2)
+    if len(parts) != 3:
+        await callback.answer("❌ Ошибка данных", show_alert=True)
+        return
+    
+    title = parts[1]
+    year_str = parts[2]
+    year = int(year_str) if year_str and year_str != "0" else None
+    
+    await callback.answer("🔍 Ищу раздачи...")
+    
+    # Initialize Prowlarr service
+    settings = get_settings()
+    prowlarr = ProwlarrService(
+        base_url=settings.prowlarr_url,
+        api_key=settings.prowlarr_api_key
+    )
+    
+    # Search torrents
+    torrents = await prowlarr.search_torrents(title, year, limit=10)
+    
+    if not torrents:
+        await callback.message.answer(
+            "😕 Раздачи не найдены.\n"
+            "Попробуйте другой фильм или проверьте настройки Prowlarr."
+        )
+        return
+    
+    # Cache torrents for this message
+    _torrent_cache[callback.message.message_id] = torrents
+    
+    # Build message
+    text = f"🧲 <b>Найдено раздач:</b> {len(torrents)}\n\n"
+    text += f"<b>{title}</b>"
+    if year:
+        text += f" ({year})"
+    text += "\n\nВыберите раздачу:"
+    
+    keyboard = build_torrent_list_keyboard(torrents)
+    
+    await callback.message.answer(
+        text=text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+@router.callback_query(F.data.startswith("get_magnet:"))
+async def callback_get_magnet(callback: CallbackQuery):
+    """Send magnet link to user.
+    
+    Args:
+        callback: Callback query
+    """
+    # Parse callback data: get_magnet:index
+    parts = callback.data.split(":")
+    if len(parts) != 2:
+        await callback.answer("❌ Ошибка данных", show_alert=True)
+        return
+    
+    idx = int(parts[1])
+    
+    # Get torrent from cache
+    # Look for the previous message (the one with torrent list)
+    # We use the replied message if available
+    message_id = callback.message.message_id
+    
+    # Try to find torrents in cache (from previous message)
+    torrents = None
+    for cached_msg_id, cached_torrents in _torrent_cache.items():
+        # Check if this is a recent cache entry
+        if abs(cached_msg_id - message_id) < 100:  # Reasonable range
+            torrents = cached_torrents
+            break
+    
+    if not torrents or idx >= len(torrents):
+        await callback.answer("❌ Раздача не найдена в кэше", show_alert=True)
+        return
+    
+    torrent = torrents[idx]
+    
+    # Send magnet link
+    text = (
+        f"🧲 <b>Magnet-ссылка</b>\n\n"
+        f"<b>Раздача:</b> {torrent.title}\n"
+        f"<b>Источник:</b> {torrent.indexer}\n"
+        f"<b>Разрешение:</b> {torrent.resolution or 'Неизвестно'}\n"
+        f"<b>Размер:</b> {torrent.size_gb} GB\n"
+        f"<b>Сиды:</b> {torrent.seeders}\n\n"
+        f"<code>{torrent.magnet_url}</code>\n\n"
+        f"<i>Скопируйте ссылку и используйте в вашем торрент-клиенте.</i>"
+    )
+    
+    await callback.message.answer(text=text, parse_mode="HTML")
+    await callback.answer("✅ Magnet-ссылка отправлена!")

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.user_group import UserGroupService
 from app.states.group import CreateGroupStates
 from app.keyboards.inline import build_main_menu_keyboard
+from app.keyboards.reply import build_main_reply_keyboard
 
 
 logger = logging.getLogger(__name__)
@@ -80,11 +81,19 @@ async def process_group_name(
             admin_user_id=db_user.id
         )
         
+        # Устанавливаем Reply-клавиатуру и отправляем сообщение
         await message.answer(
             f"✅ Группа <b>«{group.name}»</b> успешно создана!\n\n"
             f"Вы можете добавлять участников, отправляя боту их контакты "
             f"(Поделиться контактом из профиля пользователя).\n\n"
             f"Начните искать фильмы, просто отправив название!",
+            parse_mode="HTML",
+            reply_markup=build_main_reply_keyboard(has_group=True)
+        )
+        
+        # Отправляем inline-меню
+        await message.answer(
+            "📱 <b>Меню:</b>",
             parse_mode="HTML",
             reply_markup=build_main_menu_keyboard(has_group=True)
         )
@@ -97,3 +106,41 @@ async def process_group_name(
             "❌ Произошла ошибка при создании группы. Попробуйте позже."
         )
         await state.clear()
+
+
+@router.message(F.text == "➕ Создать группу")
+async def reply_create_group(message: Message, state: FSMContext, session: AsyncSession):
+    """Handle '➕ Создать группу' reply button.
+    
+    Args:
+        message: Telegram message
+        state: FSM state
+        session: Database session
+    """
+    user = message.from_user
+    
+    # Проверяем что пользователь не состоит в группе
+    service = UserGroupService(session)
+    db_user = await service.get_or_create_user(
+        telegram_user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name
+    )
+    
+    membership = await service.get_user_group(db_user.id)
+    if membership:
+        await message.answer(
+            f"⚠️ Вы уже состоите в группе «{membership.group.name}».\n\n"
+            f"В текущей версии можно состоять только в одной группе."
+        )
+        return
+    
+    # Начинаем процесс создания группы
+    await message.answer(
+        "➕ <b>Создание группы</b>\n\n"
+        "Введите название группы:",
+        parse_mode="HTML"
+    )
+    
+    await state.set_state(CreateGroupStates.waiting_for_name)

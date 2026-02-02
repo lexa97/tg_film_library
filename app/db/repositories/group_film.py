@@ -20,6 +20,25 @@ class GroupFilmRepository(BaseRepository[GroupFilm]):
         """
         super().__init__(GroupFilm, session)
     
+    async def get_by_id(self, id: int) -> Optional[GroupFilm]:
+        """Get group film by ID with eager loading of relations.
+        
+        Args:
+            id: GroupFilm ID
+            
+        Returns:
+            GroupFilm with film and watched loaded, or None if not found
+        """
+        result = await self.session.execute(
+            select(GroupFilm)
+            .where(GroupFilm.id == id)
+            .options(
+                selectinload(GroupFilm.film),
+                selectinload(GroupFilm.watched)
+            )
+        )
+        return result.scalar_one_or_none()
+    
     async def get_group_films(
         self,
         group_id: int,
@@ -106,16 +125,24 @@ class GroupFilmRepository(BaseRepository[GroupFilm]):
             added_by_user_id: User ID who added the film
             
         Returns:
-            Created group film
+            Created group film with relations loaded
         """
         group_film = await self.create(
             group_id=group_id,
             film_id=film_id,
             added_by_user_id=added_by_user_id
         )
-        # Reload with relations
-        await self.session.refresh(group_film, ["film", "watched"])
-        return group_film
+        
+        # Перезагружаем со связанными объектами
+        result = await self.session.execute(
+            select(GroupFilm)
+            .where(GroupFilm.id == group_film.id)
+            .options(
+                selectinload(GroupFilm.film),
+                selectinload(GroupFilm.watched)
+            )
+        )
+        return result.scalar_one()
     
     async def search_in_group(
         self,

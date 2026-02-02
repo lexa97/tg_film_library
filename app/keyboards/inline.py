@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.db.models import GroupFilm
-from app.services.dto import FilmSearchResult
+from app.services.dto import FilmSearchResult, TorrentResult
 
 
 def build_main_menu_keyboard(has_group: bool) -> InlineKeyboardMarkup:
@@ -42,13 +42,19 @@ def build_film_confirm_keyboard(
         index: Result index for callback data
         
     Returns:
-        Inline keyboard with Confirm button
+        Inline keyboard with Confirm and Magnet buttons
     """
     builder = InlineKeyboardBuilder()
     
     callback_data = f"confirm_film:{result.external_id}:{result.media_type}:{index}"
     builder.row(
         InlineKeyboardButton(text="✅ Подтвердить", callback_data=callback_data)
+    )
+    
+    # Add magnet button
+    magnet_data = f"magnet_search:{result.title}:{result.year or 0}"
+    builder.row(
+        InlineKeyboardButton(text="🧲 Magnet", callback_data=magnet_data)
     )
     
     return builder.as_markup()
@@ -115,16 +121,20 @@ def build_film_list_keyboard(
 
 def build_film_detail_keyboard(
     group_film_id: int,
-    is_watched: bool
+    is_watched: bool,
+    film_title: str,
+    film_year: Optional[int] = None
 ) -> InlineKeyboardMarkup:
     """Build keyboard for film detail view.
     
     Args:
         group_film_id: Group film ID
         is_watched: Whether film is already watched
+        film_title: Film title for magnet search
+        film_year: Film year for magnet search
         
     Returns:
-        Inline keyboard with Watched button
+        Inline keyboard with Watched and Magnet buttons
     """
     builder = InlineKeyboardBuilder()
     
@@ -136,8 +146,43 @@ def build_film_detail_keyboard(
             )
         )
     
+    # Add magnet button
+    magnet_data = f"magnet_search:{film_title}:{film_year or 0}"
+    builder.row(
+        InlineKeyboardButton(text="🧲 Magnet", callback_data=magnet_data)
+    )
+    
     builder.row(
         InlineKeyboardButton(text="◀️ К списку", callback_data="list")
     )
+    
+    return builder.as_markup()
+
+
+def build_torrent_list_keyboard(
+    torrents: list[TorrentResult]
+) -> InlineKeyboardMarkup:
+    """Build keyboard with torrent list.
+    
+    Args:
+        torrents: List of torrent results
+        
+    Returns:
+        Inline keyboard with torrent options as buttons
+    """
+    builder = InlineKeyboardBuilder()
+    
+    for idx, torrent in enumerate(torrents):
+        # Truncate long button text
+        button_text = torrent.display_text
+        if len(button_text) > 60:
+            button_text = button_text[:57] + "..."
+        
+        builder.row(
+            InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"get_magnet:{idx}"
+            )
+        )
     
     return builder.as_markup()

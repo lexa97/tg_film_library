@@ -179,7 +179,7 @@ class GroupRepository:
 - Репозитории не содержат бизнес-логики (только CRUD).
 - Сервисы вызывают репозитории, не наоборот.
 
-Миграции — Alembic, схема БД по п. 7 task.md (users, groups, group_members, films, group_films, watched).
+Инициализация БД — простой скрипт `initdb.py`, который создаёт таблицы через SQLAlchemy Base.metadata.create_all(). Схема БД по п. 7 task.md (users, groups, group_members, films, group_films, watched).
 
 ---
 
@@ -221,10 +221,9 @@ class GroupRepository:
 
 ## 11. Технологический стек
 
-- Python 3.11+
-- aiogram 3.x
+- Python 3.10-3.14 (рекомендуется 3.13)
+- aiogram 3.24+
 - PostgreSQL 14+
-- Alembic (миграции)
 - SQLAlchemy (async)
 - pydantic-settings, .env
 - TMDB API (поиск фильмов/сериалов, мультиязычность)

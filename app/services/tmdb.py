@@ -22,10 +22,14 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
         """Initialize TMDB search provider."""
         settings = get_settings()
         self.api_key = settings.tmdb_api_key
+        self.proxy_url = settings.proxy_url
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "accept": "application/json"
         }
+        
+        if self.proxy_url:
+            logger.info(f"TMDB will use proxy: {self.proxy_url}")
     
     async def search(
         self, 
@@ -42,7 +46,15 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
             List of up to 5 search results, or None if API error occurred
         """
         try:
-            async with httpx.AsyncClient() as client:
+            logger.debug(f"TMDB search request: query={query}, language={language}")
+            logger.debug(f"TMDB URL: {self.BASE_URL}/search/multi")
+            
+            # Создаем клиент с прокси если указан
+            client_kwargs = {"timeout": 10.0}
+            if self.proxy_url:
+                client_kwargs["proxy"] = self.proxy_url
+            
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(
                     f"{self.BASE_URL}/search/multi",
                     params={
@@ -50,9 +62,10 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                         "language": language,
                         "include_adult": "false"
                     },
-                    headers=self.headers,
-                    timeout=10.0
+                    headers=self.headers
                 )
+                
+                logger.debug(f"TMDB response status: {response.status_code}")
                 response.raise_for_status()
                 data = response.json()
                 
@@ -66,13 +79,23 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                     if result:
                         results.append(result)
                 
+                logger.info(f"TMDB search found {len(results)} results")
                 return results
                 
+        except httpx.ConnectError as e:
+            logger.error(f"TMDB connection error (check network/DNS): {e}")
+            return None
+        except httpx.TimeoutException as e:
+            logger.error(f"TMDB timeout error: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"TMDB HTTP error {e.response.status_code}: {e.response.text}")
+            return None
         except httpx.HTTPError as e:
-            logger.error(f"TMDB search error: {e}")
+            logger.error(f"TMDB HTTP error: {type(e).__name__}: {e}")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error in TMDB search: {e}")
+            logger.error(f"Unexpected error in TMDB search: {type(e).__name__}: {e}", exc_info=True)
             return None
     
     async def get_details(
@@ -91,24 +114,40 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
         """
         try:
             endpoint = f"{self.BASE_URL}/{media_type}/{external_id}"
+            logger.debug(f"TMDB get details: {endpoint}")
             
-            async with httpx.AsyncClient() as client:
+            # Создаем клиент с прокси если указан
+            client_kwargs = {"timeout": 10.0}
+            if self.proxy_url:
+                client_kwargs["proxy"] = self.proxy_url
+            
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(
                     endpoint,
                     params={"language": "ru"},
-                    headers=self.headers,
-                    timeout=10.0
+                    headers=self.headers
                 )
+                
+                logger.debug(f"TMDB details response status: {response.status_code}")
                 response.raise_for_status()
                 data = response.json()
                 
                 return self._parse_details(data, media_type)
                 
+        except httpx.ConnectError as e:
+            logger.error(f"TMDB connection error (check network/DNS): {e}")
+            return None
+        except httpx.TimeoutException as e:
+            logger.error(f"TMDB timeout error: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            logger.error(f"TMDB HTTP error {e.response.status_code}: {e.response.text}")
+            return None
         except httpx.HTTPError as e:
-            logger.error(f"TMDB get details error: {e}")
+            logger.error(f"TMDB HTTP error: {type(e).__name__}: {e}")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error in TMDB get details: {e}")
+            logger.error(f"Unexpected error in TMDB get details: {type(e).__name__}: {e}", exc_info=True)
             return None
     
     def _parse_search_result(self, item: dict[str, Any]) -> Optional[FilmSearchResult]:
