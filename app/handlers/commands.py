@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.user_group import UserGroupService
 from app.keyboards.inline import build_main_menu_keyboard
-from app.keyboards.reply import build_main_reply_keyboard
 
 
 logger = logging.getLogger(__name__)
@@ -37,17 +36,13 @@ async def cmd_start(message: Message, session: AsyncSession):
     # Check if user is in a group
     membership = await service.get_user_group(db_user.id)
     
-    # Устанавливаем Reply-клавиатуру для быстрого доступа
-    has_group = membership is not None
-    reply_keyboard = build_main_reply_keyboard(has_group=has_group)
-    
     if membership:
         # User is in a group
         group = membership.group
         text = (
             f"👋 Привет, {user.first_name}!\n\n"
             f"Вы участник группы: <b>{group.name}</b>\n\n"
-            f"Отправьте название фильма для поиска или используйте кнопки ниже."
+            f"Отправьте название фильма для поиска или используйте кнопки меню."
         )
         inline_keyboard = build_main_menu_keyboard(has_group=True)
     else:
@@ -62,11 +57,7 @@ async def cmd_start(message: Message, session: AsyncSession):
         )
         inline_keyboard = build_main_menu_keyboard(has_group=False)
     
-    # Отправляем одно сообщение с inline-клавиатурой и устанавливаем reply-клавиатуру
-    await message.answer(text, parse_mode="HTML", reply_markup=reply_keyboard)
-    
-    # Отправляем меню с inline-кнопками
-    await message.answer("📱 <b>Меню:</b>", parse_mode="HTML", reply_markup=inline_keyboard)
+    await message.answer(text, parse_mode="HTML", reply_markup=inline_keyboard)
 
 
 @router.message(Command("list"))

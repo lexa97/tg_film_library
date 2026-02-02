@@ -210,15 +210,15 @@ async def confirm_film(callback: CallbackQuery, session: AsyncSession, bot: Bot)
 _torrent_cache: dict[int, list] = {}
 
 
-@router.callback_query(F.data.startswith("magnet_search:"))
-async def callback_magnet_search(callback: CallbackQuery, session: AsyncSession):
+@router.callback_query(F.data.startswith("download_search:"))
+async def callback_download_search(callback: CallbackQuery, session: AsyncSession):
     """Search for torrents via Prowlarr.
     
     Args:
         callback: Callback query
         session: Database session
     """
-    # Parse callback data: magnet_search:title:year
+    # Parse callback data: download_search:title:year
     parts = callback.data.split(":", 2)
     if len(parts) != 3:
         await callback.answer("❌ Ошибка данных", show_alert=True)
@@ -241,21 +241,44 @@ async def callback_magnet_search(callback: CallbackQuery, session: AsyncSession)
     torrents = await prowlarr.search_torrents(title, year, limit=10)
     
     if not torrents:
-        await callback.message.answer(
+        await callback.answer(
             "😕 Раздачи не найдены.\n"
-            "Попробуйте другой фильм или проверьте настройки Prowlarr."
+            "Попробуйте другой фильм или проверьте настройки Prowlarr.",
+            show_alert=True
         )
         return
     
     # Cache torrents for this message
     _torrent_cache[callback.message.message_id] = torrents
     
-    # Build message
-    text = f"🧲 <b>Найдено раздач:</b> {len(torrents)}\n\n"
+    # Build message with detailed list
+    text = f"📥 <b>Найдено раздач:</b> {len(torrents)}\n\n"
     text += f"<b>{title}</b>"
     if year:
         text += f" ({year})"
-    text += "\n\nВыберите раздачу:"
+    text += "\n\n"
+    
+    # Add detailed list
+    for idx, torrent in enumerate(torrents, 1):
+        text += f"<b>{idx}.</b> "
+        
+        # Resolution (if available)
+        if torrent.resolution:
+            text += f"{torrent.resolution} · "
+        
+        # Size and seeders
+        text += f"{torrent.size_gb} GB · 👥 {torrent.seeders}\n"
+        
+        # Full title from Prowlarr (may contain codec, audio, language, etc.)
+        text += f"   {torrent.title}\n"
+        
+        # Source with link to tracker page
+        if torrent.info_url:
+            text += f"   <a href=\"{torrent.info_url}\">{torrent.indexer}</a>\n\n"
+        else:
+            text += f"   <i>{torrent.indexer}</i>\n\n"
+    
+    text += "Нажмите на номер раздачи для скачивания:"
     
     keyboard = build_torrent_list_keyboard(torrents)
     
@@ -266,14 +289,14 @@ async def callback_magnet_search(callback: CallbackQuery, session: AsyncSession)
     )
 
 
-@router.callback_query(F.data.startswith("get_magnet:"))
-async def callback_get_magnet(callback: CallbackQuery):
-    """Send magnet link to user.
+@router.callback_query(F.data.startswith("download_release:"))
+async def callback_download_release(callback: CallbackQuery):
+    """Download release to torrent client via Prowlarr.
     
     Args:
         callback: Callback query
     """
-    # Parse callback data: get_magnet:index
+    # Parse callback data: download_release:index
     parts = callback.data.split(":")
     if len(parts) != 2:
         await callback.answer("❌ Ошибка данных", show_alert=True)
@@ -282,8 +305,6 @@ async def callback_get_magnet(callback: CallbackQuery):
     idx = int(parts[1])
     
     # Get torrent from cache
-    # Look for the previous message (the one with torrent list)
-    # We use the replied message if available
     message_id = callback.message.message_id
     
     # Try to find torrents in cache (from previous message)
@@ -300,17 +321,40 @@ async def callback_get_magnet(callback: CallbackQuery):
     
     torrent = torrents[idx]
     
-    # Send magnet link
-    text = (
-        f"🧲 <b>Magnet-ссылка</b>\n\n"
-        f"<b>Раздача:</b> {torrent.title}\n"
-        f"<b>Источник:</b> {torrent.indexer}\n"
-        f"<b>Разрешение:</b> {torrent.resolution or 'Неизвестно'}\n"
-        f"<b>Размер:</b> {torrent.size_gb} GB\n"
-        f"<b>Сиды:</b> {torrent.seeders}\n\n"
-        f"<code>{torrent.magnet_url}</code>\n\n"
-        f"<i>Скопируйте ссылку и используйте в вашем торрент-клиенте.</i>"
+    # Show progress
+    await callback.answer("📥 Отправляю в торрент-клиент...")
+    
+    # Initialize Prowlarr service
+    settings = get_settings()
+    prowlarr = ProwlarrService(
+        base_url=settings.prowlarr_url,
+        api_key=settings.prowlarr_api_key
     )
     
-    await callback.message.answer(text=text, parse_mode="HTML")
-    await callback.answer("✅ Magnet-ссылка отправлена!")
+    # Push to download client
+    success = await prowlarr.push_to_download_client(
+        guid=torrent.guid,
+        indexer_id=torrent.indexer_id
+    )
+    
+    if success:
+        # Send success message
+        text = (
+            f"✅ <b>Раздача отправлена на скачивание!</b>\n\n"
+            f"<b>Название:</b> {torrent.title[:100]}...\n"
+            f"<b>Источник:</b> {torrent.indexer}\n"
+            f"<b>Размер:</b> {torrent.size_gb} GB\n"
+            f"<b>Сиды:</b> {torrent.seeders}\n\n"
+            f"<i>Проверьте ваш торрент-клиент для отслеживания прогресса.</i>"
+        )
+        await callback.message.answer(text=text, parse_mode="HTML")
+    else:
+        # Send error message
+        await callback.message.answer(
+            "❌ <b>Ошибка при отправке раздачи</b>\n\n"
+            "Проверьте:\n"
+            "• Настроен ли торрент-клиент в Prowlarr\n"
+            "• Доступен ли Prowlarr\n"
+            "• Логи бота для деталей",
+            parse_mode="HTML"
+        )

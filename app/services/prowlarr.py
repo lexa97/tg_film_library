@@ -56,7 +56,7 @@ class ProwlarrService:
         return None
     
     def _filter_by_quality(self, torrents: list[TorrentResult]) -> list[TorrentResult]:
-        """Filter torrents to keep only 1080p and higher.
+        """Filter torrents to keep only 720p and higher.
         
         Args:
             torrents: List of torrent results
@@ -65,22 +65,20 @@ class ProwlarrService:
             Filtered list
         """
         quality_order = {'2160p': 3, '1080p': 2, '720p': 1, '480p': 0}
-        min_quality = quality_order.get('1080p', 2)
+        min_quality = quality_order.get('720p', 1)  # Changed to 720p minimum
         
         filtered = []
         for torrent in torrents:
             # If resolution is not detected, include it by default
             # (it might be HD but we couldn't parse it from the title)
             if not torrent.resolution:
-                logger.debug(f"Resolution not detected for: {torrent.title[:50]}... - including by default")
                 filtered.append(torrent)
             else:
                 quality = quality_order.get(torrent.resolution, 2)  # Default to 1080p if unknown
                 if quality >= min_quality:
                     filtered.append(torrent)
-                else:
-                    logger.debug(f"Filtered out {torrent.resolution}: {torrent.title[:50]}...")
         
+        logger.info(f"Filtered: {len(filtered)}/{len(torrents)} torrents passed (min quality: 720p)")
         return filtered
     
     async def search_torrents(
@@ -107,14 +105,18 @@ class ProwlarrService:
         logger.info(f"Searching Prowlarr for: {query}")
         
         try:
+            # Build params with multiple categories
+            params = [
+                ("query", query),
+                ("type", "search"),
+                ("categories", "2000"),  # Movies
+                ("categories", "5000"),  # TV
+            ]
+            
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(
                     f"{self.base_url}/api/v1/search",
-                    params={
-                        "query": query,
-                        "type": "search",
-                        "categories": "2000,5000"  # Movies (2000) and TV (5000)
-                    },
+                    params=params,
                     headers={
                         "X-Api-Key": self.api_key
                     }
@@ -128,14 +130,18 @@ class ProwlarrService:
                 # Parse results
                 torrents = []
                 for item in data:
-                    # Extract magnet link
-                    magnet = None
-                    if item.get("magnetUrl"):
-                        magnet = item["magnetUrl"]
-                    elif item.get("downloadUrl") and item["downloadUrl"].startswith("magnet:"):
-                        magnet = item["downloadUrl"]
+                    # Extract download link (magnet or torrent file URL)
+                    download_link = None
+                    link_type = "unknown"
                     
-                    if not magnet:
+                    if item.get("magnetUrl"):
+                        download_link = item["magnetUrl"]
+                        link_type = "magnet"
+                    elif item.get("downloadUrl"):
+                        download_link = item["downloadUrl"]
+                        link_type = "magnet" if download_link.startswith("magnet:") else "torrent"
+                    
+                    if not download_link:
                         continue
                     
                     # Extract resolution
@@ -143,12 +149,15 @@ class ProwlarrService:
                     resolution = self._extract_resolution(title_str)
                     
                     torrent = TorrentResult(
+                        guid=item.get("guid", ""),
+                        indexer_id=item.get("indexerId", 0),
                         title=title_str,
                         indexer=item.get("indexer", "Unknown"),
                         size=item.get("size", 0),
                         seeders=item.get("seeders", 0),
-                        magnet_url=magnet,
-                        resolution=resolution
+                        magnet_url=download_link,
+                        resolution=resolution,
+                        info_url=item.get("infoUrl")
                     )
                     
                     torrents.append(torrent)
@@ -174,3 +183,44 @@ class ProwlarrService:
         except Exception as e:
             logger.error(f"Unexpected error searching Prowlarr: {e}")
             return []
+    
+    async def push_to_download_client(
+        self,
+        guid: str,
+        indexer_id: int
+    ) -> bool:
+        """Push release to download client via Prowlarr.
+        
+        Args:
+            guid: Release unique identifier
+            indexer_id: Indexer ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.info(f"Pushing release to download client: {guid[:60]}...")
+        
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/api/v1/search/bulk",
+                    json=[{
+                        "guid": guid,
+                        "indexerId": indexer_id
+                    }],
+                    headers={
+                        "X-Api-Key": self.api_key
+                    }
+                )
+                
+                response.raise_for_status()
+                
+                logger.info(f"Successfully pushed release to download client")
+                return True
+                
+        except httpx.HTTPError as e:
+            logger.error(f"Prowlarr API error when pushing: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error pushing to download client: {e}")
+            return False

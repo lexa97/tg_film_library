@@ -51,10 +51,10 @@ def build_film_confirm_keyboard(
         InlineKeyboardButton(text="✅ Подтвердить", callback_data=callback_data)
     )
     
-    # Add magnet button
-    magnet_data = f"magnet_search:{result.title}:{result.year or 0}"
+    # Add download button
+    download_data = f"download_search:{result.title}:{result.year or 0}"
     builder.row(
-        InlineKeyboardButton(text="🧲 Magnet", callback_data=magnet_data)
+        InlineKeyboardButton(text="📥 Скачать", callback_data=download_data)
     )
     
     return builder.as_markup()
@@ -146,10 +146,10 @@ def build_film_detail_keyboard(
             )
         )
     
-    # Add magnet button
-    magnet_data = f"magnet_search:{film_title}:{film_year or 0}"
+    # Add download button
+    download_data = f"download_search:{film_title}:{film_year or 0}"
     builder.row(
-        InlineKeyboardButton(text="🧲 Magnet", callback_data=magnet_data)
+        InlineKeyboardButton(text="📥 Скачать", callback_data=download_data)
     )
     
     builder.row(
@@ -168,21 +168,23 @@ def build_torrent_list_keyboard(
         torrents: List of torrent results
         
     Returns:
-        Inline keyboard with torrent options as buttons
+        Inline keyboard with numbered buttons (3-5 per row)
     """
     builder = InlineKeyboardBuilder()
     
-    for idx, torrent in enumerate(torrents):
-        # Truncate long button text
-        button_text = torrent.display_text
-        if len(button_text) > 60:
-            button_text = button_text[:57] + "..."
-        
-        builder.row(
+    # Create numbered buttons
+    buttons = []
+    for idx in range(len(torrents)):
+        buttons.append(
             InlineKeyboardButton(
-                text=button_text,
-                callback_data=f"get_magnet:{idx}"
+                text=f"#{idx + 1}",
+                callback_data=f"download_release:{idx}"
             )
         )
+    
+    # Add buttons in rows (5 buttons per row max)
+    for i in range(0, len(buttons), 5):
+        row_buttons = buttons[i:i+5]
+        builder.row(*row_buttons)
     
     return builder.as_markup()

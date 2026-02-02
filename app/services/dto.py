@@ -32,12 +32,15 @@ class FilmCreate(BaseModel):
 class TorrentResult(BaseModel):
     """Torrent search result from Prowlarr."""
     
+    guid: str = Field(description="Unique release identifier")
+    indexer_id: int = Field(description="Indexer ID")
     title: str = Field(description="Release title")
     indexer: str = Field(description="Indexer/tracker name")
     size: int = Field(description="Size in bytes")
     seeders: int = Field(default=0, description="Number of seeders")
-    magnet_url: str = Field(description="Magnet link")
+    magnet_url: str = Field(description="Magnet link or download URL")
     resolution: Optional[str] = Field(default=None, description="Video resolution (e.g., 1080p)")
+    info_url: Optional[str] = Field(default=None, description="Link to tracker page")
     
     @property
     def size_gb(self) -> float:
@@ -47,5 +50,19 @@ class TorrentResult(BaseModel):
     @property
     def display_text(self) -> str:
         """Get display text for button."""
-        resolution = self.resolution or "?"
-        return f"[👥 {self.seeders}] {resolution} · {self.size_gb} GB · {self.indexer}"
+        parts = []
+        
+        # Resolution
+        if self.resolution:
+            parts.append(self.resolution)
+        
+        # Size
+        parts.append(f"{self.size_gb} GB")
+        
+        # Seeders
+        parts.append(f"👥 {self.seeders}")
+        
+        # Source
+        parts.append(self.indexer)
+        
+        return " · ".join(parts)
