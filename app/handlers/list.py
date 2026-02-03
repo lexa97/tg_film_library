@@ -57,6 +57,7 @@ async def show_film_list(
         return
     
     group = membership.group
+    logger.info(f"List command from group_id={group.id}, user_id={user.id}")
     
     # Get films
     search_provider = TMDBFilmSearch()

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     prowlarr_url: str
     prowlarr_api_key: str
     
+    # Download Group ID (group that can auto-download via Prowlarr)
+    # Other groups will receive torrent files instead
+    download_group_id: int | None = None
+    
     # Proxy (опционально, для обхода блокировок)
     # Формат: http://user:pass@host:port или socks5://host:port
     proxy_url: str | None = None

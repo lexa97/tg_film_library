@@ -224,3 +224,52 @@ class ProwlarrService:
         except Exception as e:
             logger.error(f"Unexpected error pushing to download client: {e}")
             return False
+    
+    async def download_torrent_file(
+        self,
+        download_url: str
+    ) -> tuple[bytes | None, str | None]:
+        """Download torrent file from Prowlarr or get magnet link.
+        
+        Args:
+            download_url: Download URL from Prowlarr
+            
+        Returns:
+            Tuple of (torrent_file_bytes, magnet_url)
+            - If torrent file downloaded: (bytes, None)
+            - If redirected to magnet: (None, magnet_url)
+            - If error: (None, None)
+        """
+        logger.info(f"Downloading torrent file from: {download_url[:60]}...")
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=False  # Don't follow redirects automatically
+            ) as client:
+                response = await client.get(download_url)
+                
+                # Check if it's a redirect to magnet link
+                if response.status_code in (301, 302, 303, 307, 308):
+                    redirect_url = response.headers.get("Location", "")
+                    if redirect_url.startswith("magnet:"):
+                        logger.info(f"Download URL redirects to magnet link")
+                        return (None, redirect_url)
+                
+                response.raise_for_status()
+                
+                # Check if response is actually a torrent file
+                content_type = response.headers.get("content-type", "")
+                if "torrent" in content_type or response.content.startswith(b"d8:announce"):
+                    logger.info(f"Successfully downloaded torrent file ({len(response.content)} bytes)")
+                    return (response.content, None)
+                else:
+                    logger.warning(f"Response doesn't look like a torrent file (content-type: {content_type})")
+                    return (None, None)
+                
+        except httpx.HTTPError as e:
+            logger.error(f"Error downloading torrent file: {e}")
+            return (None, None)
+        except Exception as e:
+            logger.error(f"Unexpected error downloading torrent file: {e}")
+            return (None, None)

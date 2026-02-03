@@ -5,6 +5,7 @@ import logging
 import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from app.config import get_settings
 from app.middlewares.db import DatabaseMiddleware
@@ -79,6 +80,12 @@ async def main():
     dp.include_router(group.router)  # Reply-кнопка создания группы
     dp.include_router(member.router)
     dp.include_router(film.router)  # Общий обработчик текста - последним!
+    
+    # Set bot commands menu
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="list", description="Список фильмов группы")
+    ])
     
     # Start polling
     logger.info("Starting bot...")

@@ -2,7 +2,7 @@
 
 import logging
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, InputMediaPhoto, BufferedInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.user_group import UserGroupService
@@ -290,11 +290,17 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
 
 
 @router.callback_query(F.data.startswith("download_release:"))
-async def callback_download_release(callback: CallbackQuery):
-    """Download release to torrent client via Prowlarr.
+async def callback_download_release(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    bot: Bot
+):
+    """Download release to torrent client via Prowlarr or send torrent file.
     
     Args:
         callback: Callback query
+        session: Database session
+        bot: Bot instance
     """
     # Parse callback data: download_release:index
     parts = callback.data.split(":")
@@ -321,8 +327,23 @@ async def callback_download_release(callback: CallbackQuery):
     
     torrent = torrents[idx]
     
-    # Show progress
-    await callback.answer("📥 Отправляю в торрент-клиент...")
+    # Get user and their group
+    user = callback.from_user
+    user_service = UserGroupService(session)
+    db_user = await user_service.get_or_create_user(
+        telegram_user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name
+    )
+    
+    membership = await user_service.get_user_group(db_user.id)
+    if not membership:
+        await callback.answer("❌ Вы не состоите ни в одной группе", show_alert=True)
+        return
+    
+    group_id = membership.group.id
+    logger.info(f"Download request from group_id={group_id}, user_id={user.id}")
     
     # Initialize Prowlarr service
     settings = get_settings()
@@ -331,30 +352,91 @@ async def callback_download_release(callback: CallbackQuery):
         api_key=settings.prowlarr_api_key
     )
     
-    # Push to download client
-    success = await prowlarr.push_to_download_client(
-        guid=torrent.guid,
-        indexer_id=torrent.indexer_id
-    )
-    
-    if success:
-        # Send success message
-        text = (
-            f"✅ <b>Раздача отправлена на скачивание!</b>\n\n"
-            f"<b>Название:</b> {torrent.title[:100]}...\n"
-            f"<b>Источник:</b> {torrent.indexer}\n"
-            f"<b>Размер:</b> {torrent.size_gb} GB\n"
-            f"<b>Сиды:</b> {torrent.seeders}\n\n"
-            f"<i>Проверьте ваш торрент-клиент для отслеживания прогресса.</i>"
+    # Check if this group can auto-download via Prowlarr
+    if settings.download_group_id and group_id == settings.download_group_id:
+        # Auto-download mode: push to download client
+        logger.info(f"Auto-download mode for group {group_id}")
+        await callback.answer("📥 Отправляю в торрент-клиент...")
+        
+        success = await prowlarr.push_to_download_client(
+            guid=torrent.guid,
+            indexer_id=torrent.indexer_id
         )
-        await callback.message.answer(text=text, parse_mode="HTML")
+        
+        if success:
+            # Send success message
+            text = (
+                f"✅ <b>Раздача отправлена на скачивание!</b>\n\n"
+                f"<b>Название:</b> {torrent.title[:100]}...\n"
+                f"<b>Источник:</b> {torrent.indexer}\n"
+                f"<b>Размер:</b> {torrent.size_gb} GB\n"
+                f"<b>Сиды:</b> {torrent.seeders}\n\n"
+                f"<i>Проверьте ваш торрент-клиент для отслеживания прогресса.</i>"
+            )
+            await callback.message.answer(text=text, parse_mode="HTML")
+        else:
+            # Send error message
+            await callback.message.answer(
+                "❌ <b>Ошибка при отправке раздачи</b>\n\n"
+                "Проверьте:\n"
+                "• Настроен ли торрент-клиент в Prowlarr\n"
+                "• Доступен ли Prowlarr\n"
+                "• Логи бота для деталей",
+                parse_mode="HTML"
+            )
     else:
-        # Send error message
-        await callback.message.answer(
-            "❌ <b>Ошибка при отправке раздачи</b>\n\n"
-            "Проверьте:\n"
-            "• Настроен ли торрент-клиент в Prowlarr\n"
-            "• Доступен ли Prowlarr\n"
-            "• Логи бота для деталей",
-            parse_mode="HTML"
-        )
+        # Manual download mode: send torrent file or magnet link
+        logger.info(f"Manual download mode for group {group_id}")
+        await callback.answer("📥 Получаю ссылку...")
+        
+        torrent_data, magnet_url = await prowlarr.download_torrent_file(torrent.magnet_url)
+        
+        if torrent_data:
+            # Send torrent file
+            # Prepare filename (sanitize torrent title)
+            filename = f"{torrent.title[:100]}.torrent"
+            # Remove illegal characters
+            filename = "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_', '-', '[', ']'))
+            
+            # Create input file
+            input_file = BufferedInputFile(
+                file=torrent_data,
+                filename=filename
+            )
+            
+            # Send torrent file
+            caption = (
+                f"📦 <b>{torrent.title[:200]}</b>\n\n"
+                f"<b>Источник:</b> {torrent.indexer}\n"
+                f"<b>Размер:</b> {torrent.size_gb} GB\n"
+                f"<b>Сиды:</b> {torrent.seeders}"
+            )
+            
+            await bot.send_document(
+                chat_id=callback.message.chat.id,
+                document=input_file,
+                caption=caption,
+                parse_mode="HTML"
+            )
+        elif magnet_url:
+            # Send magnet link as text
+            text = (
+                f"🧲 <b>Magnet-ссылка</b>\n\n"
+                f"<b>{torrent.title[:200]}</b>\n\n"
+                f"<b>Источник:</b> {torrent.indexer}\n"
+                f"<b>Размер:</b> {torrent.size_gb} GB\n"
+                f"<b>Сиды:</b> {torrent.seeders}\n\n"
+                f"<code>{magnet_url}</code>\n\n"
+                f"<i>Скопируйте ссылку и добавьте в свой торрент-клиент</i>"
+            )
+            
+            await callback.message.answer(text=text, parse_mode="HTML")
+        else:
+            # Send error message
+            await callback.message.answer(
+                "❌ <b>Ошибка при получении раздачи</b>\n\n"
+                "Проверьте:\n"
+                "• Доступен ли Prowlarr\n"
+                "• Логи бота для деталей",
+                parse_mode="HTML"
+            )
