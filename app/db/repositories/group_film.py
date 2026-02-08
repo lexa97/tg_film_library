@@ -57,12 +57,17 @@ class GroupFilmRepository(BaseRepository[GroupFilm]):
         """
         result = await self.session.execute(
             select(GroupFilm)
+            .outerjoin(Watched, GroupFilm.id == Watched.group_film_id)
+            .join(Film, GroupFilm.film_id == Film.id)
             .where(GroupFilm.group_id == group_id)
             .options(
                 selectinload(GroupFilm.film),
                 selectinload(GroupFilm.watched)
             )
-            .order_by(GroupFilm.created_at.desc())
+            .order_by(
+                Watched.id.asc().nulls_first(),  # непросмотренные первыми
+                Film.title.asc()
+            )
             .limit(limit)
             .offset(offset)
         )

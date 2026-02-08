@@ -7,6 +7,44 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.db.models import GroupFilm
 from app.services.dto import FilmSearchResult, TorrentResult
 
+# Telegram limit: callback_data max 64 bytes
+CALLBACK_DATA_MAX_BYTES = 64
+
+# Cache for download_search: {id: (title, year)} — avoids long titles in callback_data
+_download_search_cache: dict[int, tuple[str, Optional[int]]] = {}
+_download_search_counter = 0
+
+
+def _truncate_callback_data(data: str, max_bytes: int = CALLBACK_DATA_MAX_BYTES) -> str:
+    """Truncate string to fit within Telegram callback_data limit (64 bytes)."""
+    encoded = data.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return data
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def register_download_search(title: str, year: Optional[int]) -> str:
+    """Register (title, year) in cache and return short callback_data.
+    
+    Use this instead of putting full title in callback_data (64 byte limit).
+    """
+    global _download_search_counter
+    _download_search_counter = (_download_search_counter + 1) % 100000
+    _download_search_cache[_download_search_counter] = (title, year)
+    return f"download_search:{_download_search_counter}"
+
+
+def get_download_search_from_cache(callback_data: str) -> Optional[tuple[str, Optional[int]]]:
+    """Get (title, year) from cache by callback_data like 'download_search:12345'."""
+    parts = callback_data.split(":", 2)
+    if len(parts) != 2:
+        return None
+    try:
+        cache_id = int(parts[1])
+        return _download_search_cache.get(cache_id)
+    except ValueError:
+        return None
+
 
 def build_main_menu_keyboard(has_group: bool) -> InlineKeyboardMarkup:
     """Build main menu keyboard.
@@ -51,8 +89,8 @@ def build_film_confirm_keyboard(
         InlineKeyboardButton(text="✅ Подтвердить", callback_data=callback_data)
     )
     
-    # Add download button
-    download_data = f"download_search:{result.title}:{result.year or 0}"
+    # Add download button (use cache — title can exceed 64 bytes)
+    download_data = register_download_search(result.title, result.year)
     builder.row(
         InlineKeyboardButton(text="📥 Скачать", callback_data=download_data)
     )
@@ -146,8 +184,8 @@ def build_film_detail_keyboard(
             )
         )
     
-    # Add download button
-    download_data = f"download_search:{film_title}:{film_year or 0}"
+    # Add download button (use cache — title can exceed 64 bytes)
+    download_data = register_download_search(film_title, film_year)
     builder.row(
         InlineKeyboardButton(text="📥 Скачать", callback_data=download_data)
     )

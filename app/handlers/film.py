@@ -12,7 +12,11 @@ from app.services.notification import NotificationService
 from app.services.tmdb import TMDBFilmSearch
 from app.services.prowlarr import ProwlarrService
 from app.services.dto import FilmCreate
-from app.keyboards.inline import build_film_confirm_keyboard, build_torrent_list_keyboard
+from app.keyboards.inline import (
+    build_film_confirm_keyboard,
+    build_torrent_list_keyboard,
+    get_download_search_from_cache,
+)
 from app.config import get_settings
 
 
@@ -218,15 +222,18 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
         callback: Callback query
         session: Database session
     """
-    # Parse callback data: download_search:title:year
-    parts = callback.data.split(":", 2)
-    if len(parts) != 3:
-        await callback.answer("❌ Ошибка данных", show_alert=True)
-        return
-    
-    title = parts[1]
-    year_str = parts[2]
-    year = int(year_str) if year_str and year_str != "0" else None
+    # Parse callback data: download_search:id (cached) or download_search:title:year (legacy)
+    cached = get_download_search_from_cache(callback.data)
+    if cached:
+        title, year = cached
+    else:
+        parts = callback.data.split(":", 2)
+        if len(parts) != 3:
+            await callback.answer("❌ Ошибка данных", show_alert=True)
+            return
+        title = parts[1]
+        year_str = parts[2]
+        year = int(year_str) if year_str and year_str != "0" else None
     
     await callback.answer("🔍 Ищу раздачи...")
     
