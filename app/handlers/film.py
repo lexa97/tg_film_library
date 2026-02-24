@@ -255,9 +255,6 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
         )
         return
     
-    # Cache torrents for this message
-    _torrent_cache[callback.message.message_id] = torrents
-    
     # Build message with detailed list
     text = f"📥 <b>Найдено раздач:</b> {len(torrents)}\n\n"
     text += f"<b>{title}</b>"
@@ -289,11 +286,14 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
     
     keyboard = build_torrent_list_keyboard(torrents)
     
-    await callback.message.answer(
+    sent_message = await callback.message.answer(
         text=text,
         parse_mode="HTML",
         reply_markup=keyboard
     )
+
+    # Cache torrents for exact list message with inline buttons
+    _torrent_cache[sent_message.message_id] = torrents
 
 
 @router.callback_query(F.data.startswith("download_release:"))
@@ -320,13 +320,14 @@ async def callback_download_release(
     # Get torrent from cache
     message_id = callback.message.message_id
     
-    # Try to find torrents in cache (from previous message)
-    torrents = None
-    for cached_msg_id, cached_torrents in _torrent_cache.items():
-        # Check if this is a recent cache entry
-        if abs(cached_msg_id - message_id) < 100:  # Reasonable range
-            torrents = cached_torrents
-            break
+    torrents = _torrent_cache.get(message_id)
+
+    # Backward-compatible fallback for older cached entries
+    if torrents is None:
+        for cached_msg_id, cached_torrents in _torrent_cache.items():
+            if abs(cached_msg_id - message_id) < 100:
+                torrents = cached_torrents
+                break
     
     if not torrents or idx >= len(torrents):
         await callback.answer("❌ Раздача не найдена в кэше", show_alert=True)
@@ -367,7 +368,10 @@ async def callback_download_release(
         
         success = await prowlarr.push_to_download_client(
             guid=torrent.guid,
-            indexer_id=torrent.indexer_id
+            indexer_id=torrent.indexer_id,
+            search_query=torrent.search_query,
+            info_url=torrent.info_url,
+            title=torrent.title,
         )
         
         if success:

@@ -41,6 +41,10 @@ class TorrentResult(BaseModel):
     magnet_url: str = Field(description="Magnet link or download URL")
     resolution: Optional[str] = Field(default=None, description="Video resolution (e.g., 1080p)")
     info_url: Optional[str] = Field(default=None, description="Link to tracker page")
+    search_query: Optional[str] = Field(
+        default=None,
+        description="Original query used in Prowlarr search",
+    )
     
     @property
     def size_gb(self) -> float:

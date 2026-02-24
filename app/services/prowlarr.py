@@ -24,6 +24,39 @@ class ProwlarrService:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = 30.0
+
+    async def _search_raw_releases(self, query: str) -> list[dict]:
+        """Perform raw interactive search in Prowlarr."""
+        params = [
+            ("query", query),
+            ("type", "search"),
+            ("categories", "2000"),  # Movies
+            ("categories", "5000"),  # TV
+        ]
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/search",
+                params=params,
+                headers={"X-Api-Key": self.api_key},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else []
+
+    async def _push_release(self, guid: str, indexer_id: int) -> httpx.Response:
+        """Push single release to Prowlarr download client pipeline."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            return await client.post(
+                f"{self.base_url}/api/v1/search/bulk",
+                json=[{
+                    "guid": guid,
+                    "indexerId": indexer_id
+                }],
+                headers={
+                    "X-Api-Key": self.api_key
+                }
+            )
     
     def _extract_resolution(self, title: str) -> Optional[str]:
         """Extract resolution from release title.
@@ -105,77 +138,56 @@ class ProwlarrService:
         logger.info(f"Searching Prowlarr for: {query}")
         
         try:
-            # Build params with multiple categories
-            params = [
-                ("query", query),
-                ("type", "search"),
-                ("categories", "2000"),  # Movies
-                ("categories", "5000"),  # TV
-            ]
+            data = await self._search_raw_releases(query)
+            logger.info(f"Prowlarr returned {len(data)} results")
+                
+            # Parse results
+            torrents = []
+            for item in data:
+                # Extract download link (magnet or torrent file URL)
+                download_link = None
+                
+                if item.get("magnetUrl"):
+                    download_link = item["magnetUrl"]
+                elif item.get("downloadUrl"):
+                    download_link = item["downloadUrl"]
+                
+                if not download_link:
+                    continue
+                
+                # Extract resolution
+                title_str = item.get("title", "")
+                resolution = self._extract_resolution(title_str)
+                
+                torrent = TorrentResult(
+                    guid=item.get("guid", ""),
+                    indexer_id=item.get("indexerId", 0),
+                    title=title_str,
+                    indexer=item.get("indexer", "Unknown"),
+                    size=item.get("size", 0),
+                    seeders=item.get("seeders", 0),
+                    magnet_url=download_link,
+                    resolution=resolution,
+                    info_url=item.get("infoUrl"),
+                    search_query=query,
+                )
+                
+                torrents.append(torrent)
             
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(
-                    f"{self.base_url}/api/v1/search",
-                    params=params,
-                    headers={
-                        "X-Api-Key": self.api_key
-                    }
-                )
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                logger.info(f"Prowlarr returned {len(data)} results")
-                
-                # Parse results
-                torrents = []
-                for item in data:
-                    # Extract download link (magnet or torrent file URL)
-                    download_link = None
-                    link_type = "unknown"
-                    
-                    if item.get("magnetUrl"):
-                        download_link = item["magnetUrl"]
-                        link_type = "magnet"
-                    elif item.get("downloadUrl"):
-                        download_link = item["downloadUrl"]
-                        link_type = "magnet" if download_link.startswith("magnet:") else "torrent"
-                    
-                    if not download_link:
-                        continue
-                    
-                    # Extract resolution
-                    title_str = item.get("title", "")
-                    resolution = self._extract_resolution(title_str)
-                    
-                    torrent = TorrentResult(
-                        guid=item.get("guid", ""),
-                        indexer_id=item.get("indexerId", 0),
-                        title=title_str,
-                        indexer=item.get("indexer", "Unknown"),
-                        size=item.get("size", 0),
-                        seeders=item.get("seeders", 0),
-                        magnet_url=download_link,
-                        resolution=resolution,
-                        info_url=item.get("infoUrl")
-                    )
-                    
-                    torrents.append(torrent)
-                
-                # Filter by quality (1080p+)
-                torrents = self._filter_by_quality(torrents)
-                
-                # Sort by seeders (descending)
-                torrents.sort(key=lambda x: x.seeders, reverse=True)
-                
-                # Limit results
-                result = torrents[:limit]
-                
-                logger.info(
-                    f"Returning {len(result)} torrents (filtered and sorted)"
-                )
-                
-                return result
+            # Filter by quality (1080p+)
+            torrents = self._filter_by_quality(torrents)
+            
+            # Sort by seeders (descending)
+            torrents.sort(key=lambda x: x.seeders, reverse=True)
+            
+            # Limit results
+            result = torrents[:limit]
+            
+            logger.info(
+                f"Returning {len(result)} torrents (filtered and sorted)"
+            )
+            
+            return result
                 
         except httpx.HTTPError as e:
             logger.error(f"Prowlarr API error: {e}")
@@ -187,13 +199,19 @@ class ProwlarrService:
     async def push_to_download_client(
         self,
         guid: str,
-        indexer_id: int
+        indexer_id: int,
+        search_query: Optional[str] = None,
+        info_url: Optional[str] = None,
+        title: Optional[str] = None,
     ) -> bool:
         """Push release to download client via Prowlarr.
         
         Args:
             guid: Release unique identifier
             indexer_id: Indexer ID
+            search_query: Original query for refresh lookup fallback
+            info_url: Optional tracker info URL for matching
+            title: Optional release title for matching
             
         Returns:
             True if successful, False otherwise
@@ -201,23 +219,74 @@ class ProwlarrService:
         logger.info(f"Pushing release to download client: {guid[:60]}...")
         
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/v1/search/bulk",
-                    json=[{
-                        "guid": guid,
-                        "indexerId": indexer_id
-                    }],
-                    headers={
-                        "X-Api-Key": self.api_key
-                    }
+            response = await self._push_release(guid=guid, indexer_id=indexer_id)
+            response.raise_for_status()
+
+            logger.info("Successfully pushed release to download client")
+            return True
+
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            response_text = e.response.text
+
+            # Prowlarr keeps interactive search results in cache.
+            # If cache misses, refresh search and retry with fresh guid/indexerId.
+            is_cache_miss = (
+                status_code in (400, 404)
+                and "cache" in response_text.lower()
+            )
+
+            if is_cache_miss and search_query:
+                logger.warning(
+                    "Prowlarr cache miss on bulk grab (status=%s). "
+                    "Refreshing search and retrying.",
+                    status_code,
                 )
-                
-                response.raise_for_status()
-                
-                logger.info(f"Successfully pushed release to download client")
-                return True
-                
+                try:
+                    refreshed = await self._search_raw_releases(search_query)
+
+                    def _match(item: dict) -> bool:
+                        item_guid = item.get("guid")
+                        item_indexer = item.get("indexerId")
+                        if item_guid == guid and item_indexer == indexer_id:
+                            return True
+                        if info_url and item.get("infoUrl") == info_url and item_indexer == indexer_id:
+                            return True
+                        if title and item.get("title") == title and item_indexer == indexer_id:
+                            return True
+                        return False
+
+                    matched = next((item for item in refreshed if _match(item)), None)
+                    if matched:
+                        retry_guid = matched.get("guid", guid)
+                        retry_indexer_id = matched.get("indexerId", indexer_id)
+                        retry_response = await self._push_release(
+                            guid=retry_guid,
+                            indexer_id=retry_indexer_id,
+                        )
+                        retry_response.raise_for_status()
+                        logger.info("Successfully pushed release after cache refresh retry")
+                        return True
+
+                    logger.error(
+                        "Prowlarr cache refresh retry failed: release not found. "
+                        "query=%r, guid=%r, indexer_id=%r",
+                        search_query,
+                        guid,
+                        indexer_id,
+                    )
+                    return False
+                except httpx.HTTPError as retry_error:
+                    logger.error("Prowlarr retry after cache miss failed: %s", retry_error)
+                    return False
+
+            logger.error(
+                "Prowlarr API error when pushing (status=%s, body=%s): %s",
+                status_code,
+                response_text,
+                e,
+            )
+            return False
         except httpx.HTTPError as e:
             logger.error(f"Prowlarr API error when pushing: {e}")
             return False
