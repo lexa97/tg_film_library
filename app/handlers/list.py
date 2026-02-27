@@ -162,6 +162,13 @@ async def callback_film_detail(callback: CallbackQuery, session: AsyncSession):
     if film.title_original and film.title_original != film.title:
         text += f"\n<i>{film.title_original}</i>"
     
+    # Дополнительные данные о фильме
+    if film.duration or film.director:
+        if film.duration:
+            text += f"\nДлительность: {film.duration}"
+        if film.director:
+            text += f"\nРежиссёр: {film.director}"
+    
     if film.description:
         text += f"\n\n{film.description}"
     

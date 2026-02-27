@@ -393,7 +393,8 @@ async def callback_download_release(
                 "• Настроен ли торрент-клиент в Prowlarr\n"
                 "• Доступен ли Prowlarr\n"
                 "• Логи бота для деталей",
-                parse_mode="HTML"
+                parse_mode="HTML", 
+                show_alert=true
             )
     else:
         # Manual download mode: send torrent file or magnet link
@@ -449,5 +450,6 @@ async def callback_download_release(
                 "Проверьте:\n"
                 "• Доступен ли Prowlarr\n"
                 "• Логи бота для деталей",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                show_alert=true
             )

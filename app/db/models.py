@@ -103,6 +103,8 @@ class Film(Base):
     year: Mapped[Optional[int]] = mapped_column(nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     poster_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    duration: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    director: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relationships
