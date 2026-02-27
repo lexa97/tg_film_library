@@ -15,6 +15,14 @@ class FilmSearchResult(BaseModel):
     description: Optional[str] = Field(default=None, description="Short description")
     poster_url: Optional[str] = Field(default=None, description="Poster image URL")
     media_type: str = Field(description="Media type: 'movie' or 'tv'")
+    duration: Optional[str] = Field(
+        default=None,
+        description="Runtime in HH:MM format (e.g., '02:15')",
+    )
+    director: Optional[str] = Field(
+        default=None,
+        description="Director name from TMDB credits",
+    )
 
 
 class FilmCreate(BaseModel):
@@ -27,6 +35,8 @@ class FilmCreate(BaseModel):
     year: Optional[int] = None
     description: Optional[str] = None
     poster_url: Optional[str] = None
+    duration: Optional[str] = None
+    director: Optional[str] = None
 
 
 class TorrentResult(BaseModel):

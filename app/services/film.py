@@ -76,7 +76,9 @@ class FilmService:
             title_original=film_data.title_original,
             year=film_data.year,
             description=film_data.description,
-            poster_url=film_data.poster_url
+            poster_url=film_data.poster_url,
+            duration=film_data.duration,
+            director=film_data.director,
         )
     
     async def get_film_details(

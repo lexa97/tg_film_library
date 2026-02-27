@@ -124,8 +124,12 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
             async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(
                     endpoint,
-                    params={"language": "ru"},
-                    headers=self.headers
+                    params={
+                        "language": "ru",
+                        # Подтягиваем кредиты, чтобы вытащить режиссёра
+                        "append_to_response": "credits",
+                    },
+                    headers=self.headers,
                 )
                 
                 logger.debug(f"TMDB details response status: {response.status_code}")
@@ -214,10 +218,14 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 title = data.get("title", "")
                 original_title = data.get("original_title")
                 release_date = data.get("release_date", "")
+                runtime_minutes = data.get("runtime")
             else:  # tv
                 title = data.get("name", "")
                 original_title = data.get("original_name")
                 release_date = data.get("first_air_date", "")
+                # Для сериалов TMDB возвращает список длительностей эпизодов
+                runtimes = data.get("episode_run_time") or []
+                runtime_minutes = runtimes[0] if runtimes else None
             
             year = None
             if release_date:
@@ -225,6 +233,26 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                     year = int(release_date.split("-")[0])
                 except (ValueError, IndexError):
                     pass
+            
+            # Форматируем длительность в строку чч:мм
+            duration: Optional[str] = None
+            if runtime_minutes:
+                try:
+                    minutes_int = int(runtime_minutes)
+                    hours = minutes_int // 60
+                    minutes = minutes_int % 60
+                    duration = f"{hours:02d}:{minutes:02d}"
+                except (TypeError, ValueError):
+                    duration = None
+            
+            # Ищем режиссёра в credits.crew
+            director: Optional[str] = None
+            credits = data.get("credits") or {}
+            crew = credits.get("crew") or []
+            for member in crew:
+                if member.get("job") == "Director":
+                    director = member.get("name")
+                    break
             
             poster_path = data.get("poster_path")
             poster_url = f"{self.IMAGE_BASE_URL}{poster_path}" if poster_path else None
@@ -237,7 +265,9 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 year=year,
                 description=data.get("overview"),
                 poster_url=poster_url,
-                media_type=media_type
+                media_type=media_type,
+                duration=duration,
+                director=director,
             )
             
         except Exception as e:

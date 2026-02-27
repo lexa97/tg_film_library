@@ -51,7 +51,9 @@ class FilmRepository(BaseRepository[Film]):
         title_original: Optional[str] = None,
         year: Optional[int] = None,
         description: Optional[str] = None,
-        poster_url: Optional[str] = None
+        poster_url: Optional[str] = None,
+        duration: Optional[str] = None,
+        director: Optional[str] = None,
     ) -> Film:
         """Create new film.
         
@@ -74,5 +76,7 @@ class FilmRepository(BaseRepository[Film]):
             title_original=title_original,
             year=year,
             description=description,
-            poster_url=poster_url
+            poster_url=poster_url,
+            duration=duration,
+            director=director,
         )

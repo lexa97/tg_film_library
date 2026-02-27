@@ -174,7 +174,9 @@ async def confirm_film(callback: CallbackQuery, session: AsyncSession, bot: Bot)
         title_original=film_details.title_original,
         year=film_details.year,
         description=film_details.description,
-        poster_url=film_details.poster_url
+        poster_url=film_details.poster_url,
+        duration=film_details.duration,
+        director=film_details.director,
     )
     
     try:
@@ -387,15 +389,14 @@ async def callback_download_release(
             await callback.message.answer(text=text, parse_mode="HTML")
         else:
             # Send error message
-            await callback.message.answer(
-                "❌ <b>Ошибка при отправке раздачи</b>\n\n"
-                "Проверьте:\n"
-                "• Настроен ли торрент-клиент в Prowlarr\n"
-                "• Доступен ли Prowlarr\n"
-                "• Логи бота для деталей",
-                parse_mode="HTML", 
-                show_alert=true
-            )
+                await callback.message.answer(
+                    "❌ <b>Ошибка при отправке раздачи</b>\n\n"
+                    "Проверьте:\n"
+                    "• Настроен ли торрент-клиент в Prowlarr\n"
+                    "• Доступен ли Prowlarr\n"
+                    "• Логи бота для деталей",
+                    parse_mode="HTML",
+                )
     else:
         # Manual download mode: send torrent file or magnet link
         logger.info(f"Manual download mode for group {group_id}")
@@ -451,5 +452,4 @@ async def callback_download_release(
                 "• Доступен ли Prowlarr\n"
                 "• Логи бота для деталей",
                 parse_mode="HTML",
-                show_alert=true
             )
