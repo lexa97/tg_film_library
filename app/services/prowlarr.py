@@ -192,7 +192,10 @@ class ProwlarrService:
             return result
                 
         except httpx.HTTPError as e:
-            logger.error(f"Prowlarr API error: {e}")
+            msg = str(e) or repr(e)
+            if isinstance(e, httpx.HTTPStatusError):
+                msg = f"status={e.response.status_code} body={e.response.text[:200]!r}"
+            logger.error("Prowlarr API error: %s", msg)
             return []
         except Exception as e:
             logger.error(f"Unexpected error searching Prowlarr: {e}")

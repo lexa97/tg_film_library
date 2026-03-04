@@ -243,6 +243,10 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
         year_str = parts[2]
         year = int(year_str) if year_str and year_str != "0" else None
     
+    # Отвечаем на callback сразу: у Telegram лимит ~10–30 сек, долгий поиск в Prowlarr
+    # истекает позже — второй answer() даёт "query is too old". Один ответ в начале.
+    await callback.answer("🔍 Ищу раздачи...")
+    
     # Initialize Prowlarr service
     settings = get_settings()
     prowlarr = ProwlarrService(
@@ -254,11 +258,10 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
     torrents = await prowlarr.search_torrents(title, year, limit=10)
     
     if not torrents:
-        # Возвращаем ошибку во всплывающем окне
-        await callback.answer(
+        # Всплывающее окно после долгого ожидания Telegram не примет — шлём сообщением
+        await callback.message.answer(
             "😕 Раздачи не найдены.\n"
-            "Попробуйте другой фильм или проверьте настройки Prowlarr.",
-            show_alert=True,
+            "Попробуйте другой фильм или проверьте настройки Prowlarr."
         )
         return
     
@@ -292,9 +295,6 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
     text += "Нажмите на номер раздачи для скачивания:"
     
     keyboard = build_torrent_list_keyboard(torrents)
-    
-    # Подтверждаем callback (без алерта), чтобы убрать "часики"
-    await callback.answer()
     
     sent_message = await callback.message.answer(
         text=text,
