@@ -25,13 +25,14 @@ class ProwlarrService:
         self.api_key = api_key
         self.timeout = 30.0
 
-    async def _search_raw_releases(self, query: str) -> list[dict]:
+    async def _search_raw_releases(self, query: str, limit: int = 100) -> list[dict]:
         """Perform raw interactive search in Prowlarr."""
         params = [
             ("query", query),
             ("type", "search"),
             ("categories", "2000"),  # Movies
             ("categories", "5000"),  # TV
+            ("limit", str(limit)),
         ]
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -138,7 +139,7 @@ class ProwlarrService:
         logger.info(f"Searching Prowlarr for: {query}")
         
         try:
-            data = await self._search_raw_releases(query)
+            data = await self._search_raw_releases(query, limit=limit)
             logger.info(f"Prowlarr returned {len(data)} results")
                 
             # Parse results
