@@ -23,8 +23,8 @@ class ProwlarrService:
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        # Делаем таймаут меньше 30 секунд Telegram, чтобы успеть ответить на callback_query
-        self.timeout = 20.0
+        # Поиск по нескольким индексам в Prowlarr может занимать 60–90+ сек
+        self.timeout = 90.0
 
     async def _search_raw_releases(self, query: str, limit: int = 100) -> list[dict]:
         """Perform raw interactive search in Prowlarr."""
