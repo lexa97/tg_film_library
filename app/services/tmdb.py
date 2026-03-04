@@ -245,7 +245,7 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 except (TypeError, ValueError):
                     duration = None
             
-            # Ищем режиссёра в credits.crew
+            # Ищем режиссёра в credits.crew (приходят при append_to_response=credits)
             director: Optional[str] = None
             credits = data.get("credits") or {}
             crew = credits.get("crew") or []
@@ -253,6 +253,14 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 if member.get("job") == "Director":
                     director = member.get("name")
                     break
+            logger.debug(
+                "TMDB _parse_details: runtime=%r credits_keys=%r crew_len=%d director=%r duration=%r",
+                data.get("runtime") if media_type == "movie" else data.get("episode_run_time"),
+                list(credits.keys()) if credits else None,
+                len(crew),
+                director,
+                duration,
+            )
             
             poster_path = data.get("poster_path")
             poster_url = f"{self.IMAGE_BASE_URL}{poster_path}" if poster_path else None

@@ -164,6 +164,12 @@ async def confirm_film(callback: CallbackQuery, session: AsyncSession, bot: Bot)
         await callback.answer("❌ Не удалось загрузить данные фильма", show_alert=True)
         return
     
+    logger.info(
+        "Film details from TMDB: duration=%r director=%r",
+        getattr(film_details, "duration", None),
+        getattr(film_details, "director", None),
+    )
+    
     # Add film to group
     group_film_service = GroupFilmService(session, film_service)
     
