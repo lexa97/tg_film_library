@@ -11,6 +11,9 @@ from app.services.tmdb import TMDBFilmSearch
 
 logger = logging.getLogger(__name__)
 
+# В кэш кладём только верхушку списка TMDB — хвост даёт шум и «одинаковые блокбастеры».
+MAX_RECOMMENDATIONS_PER_SOURCE = 15
+
 
 async def refresh_recommendation_cache_for_all_sources(
     session: AsyncSession,
@@ -59,6 +62,7 @@ async def refresh_recommendation_cache_for_all_sources(
             )
             await asyncio.sleep(delay_between_requests_sec)
             continue
+        recs = recs[:MAX_RECOMMENDATIONS_PER_SOURCE]
         await cache_repo.replace_for_source(fid, recs)
         ok += 1
         if not recs:

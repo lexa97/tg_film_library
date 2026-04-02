@@ -30,12 +30,13 @@ class FilmRecommendationCacheRepository:
         """Удалить старые строки источника и вставить новый набор (ext_id, media_type)."""
         ts = fetched_at or datetime.utcnow()
         await self.delete_for_source(source_film_id)
-        for ext_id, media_type in recommendations:
+        for position, (ext_id, media_type) in enumerate(recommendations):
             self._session.add(
                 FilmRecommendationCache(
                     source_film_id=source_film_id,
                     recommended_external_id=ext_id,
                     recommended_media_type=media_type,
+                    position=position,
                     fetched_at=ts,
                 )
             )

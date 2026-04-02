@@ -136,6 +136,8 @@ class FilmRecommendationCache(Base):
     source_film_id: Mapped[int] = mapped_column(ForeignKey("films.id"), index=True)
     recommended_external_id: Mapped[str] = mapped_column(String(50))
     recommended_media_type: Mapped[str] = mapped_column(String(10))
+    # Порядок в ответе TMDB (0 = самый релевантный) — для взвешивания при агрегации
+    position: Mapped[int] = mapped_column(default=0)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     source_film: Mapped["Film"] = relationship("Film", back_populates="recommendation_rows_as_source")

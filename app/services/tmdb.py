@@ -154,20 +154,25 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
             logger.error(f"Unexpected error in TMDB get details: {type(e).__name__}: {e}", exc_info=True)
             return None
 
-    async def fetch_recommendations(
+    async def _fetch_recommendations_page(
         self,
         external_id: str,
         media_type: str,
-    ) -> Optional[list[tuple[str, str]]]:
-        """Первая страница /movie|tv/{id}/recommendations."""
+    ) -> Optional[list[tuple[str, str]]] | str:
+        """
+        Один запрос к /movie|tv/{id}/recommendations.
+
+        Returns:
+            список (в т.ч. пустой) при 200;
+            "not_found" при 404 (часто неверный movie vs tv);
+            None при прочей ошибке.
+        """
         endpoint = f"{self.BASE_URL}/{media_type}/{external_id}/recommendations"
         try:
             client_kwargs = {"timeout": 10.0}
             if self.proxy_url:
                 client_kwargs["proxy"] = self.proxy_url
             async with httpx.AsyncClient(**client_kwargs) as client:
-                # Параметр api_key обязателен для классического v3-ключа;
-                # Bearer в headers подходит для Read Access Token — оба варианта TMDB принимает.
                 response = await client.get(
                     endpoint,
                     params={
@@ -177,6 +182,8 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                     },
                     headers=self.headers,
                 )
+                if response.status_code == 404:
+                    return "not_found"
                 response.raise_for_status()
                 data = response.json()
             out: list[tuple[str, str]] = []
@@ -199,6 +206,29 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
         except Exception as e:
             logger.error("TMDB fetch_recommendations: %s", e, exc_info=True)
             return None
+
+    async def fetch_recommendations(
+        self,
+        external_id: str,
+        media_type: str,
+    ) -> Optional[list[tuple[str, str]]]:
+        """Первая страница recommendations; при 404 пробуем противоположный тип (tv↔movie)."""
+        first = await self._fetch_recommendations_page(external_id, media_type)
+        if isinstance(first, list):
+            return first
+        if first != "not_found":
+            return None
+        alt = "tv" if media_type == "movie" else "movie"
+        second = await self._fetch_recommendations_page(external_id, alt)
+        if isinstance(second, list):
+            logger.info(
+                "TMDB recommendations: external_id=%s в БД как %s, ответ TMDB по эндпоинту %s",
+                external_id,
+                media_type,
+                alt,
+            )
+            return second
+        return None
 
     def _parse_search_result(self, item: dict[str, Any]) -> Optional[FilmSearchResult]:
         """Parse search result item.

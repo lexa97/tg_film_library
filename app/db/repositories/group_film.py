@@ -172,6 +172,16 @@ class GroupFilmRepository(BaseRepository[GroupFilm]):
         )
         return [int(x[0]) for x in result.all()]
 
+    async def watched_film_media_types(self, group_id: int) -> list[str]:
+        """media_type просмотренных фильмов (для фильтра movie/tv в подборке)."""
+        result = await self.session.execute(
+            select(Film.media_type)
+            .join(GroupFilm, GroupFilm.film_id == Film.id)
+            .join(Watched, Watched.group_film_id == GroupFilm.id)
+            .where(GroupFilm.group_id == group_id)
+        )
+        return [str(x[0] or "movie") for x in result.all()]
+
     async def search_in_group(
         self,
         group_id: int,
