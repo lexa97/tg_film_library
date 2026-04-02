@@ -3,7 +3,7 @@
 import logging
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message, User as TgUser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.user_group import UserGroupService
@@ -18,6 +18,57 @@ from app.keyboards.inline import build_main_menu_keyboard
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+async def run_relative_suggestions(
+    message: Message,
+    session: AsyncSession,
+    *,
+    from_user: TgUser | None = None,
+) -> None:
+    """Подборка по кэшу TMDB и просмотренным (команда /relative и кнопка меню)."""
+    user = from_user or message.from_user
+    service = UserGroupService(session)
+    db_user = await service.get_or_create_user(
+        telegram_user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+    membership = await service.get_user_group(db_user.id)
+    if not membership:
+        await message.answer(
+            "❌ Вы не состоите ни в одной группе.\n"
+            "Создайте группу или попросите администратора добавить вас."
+        )
+        return
+
+    rec = RecommendationService(session, TMDBFilmSearch())
+    outcome = await rec.build_relative_suggestions(membership.group.id)
+
+    if outcome.kind == RelativeOutcomeKind.NO_WATCHED:
+        await message.answer(
+            "📽 Сначала отметьте хотя бы один фильм как просмотренный — "
+            "тогда можно будет предложить похожее."
+        )
+        return
+    if outcome.kind == RelativeOutcomeKind.CACHE_EMPTY:
+        await message.answer(
+            "⏳ Кэш рекомендаций ещё не готов. Обычно он заполняется в фоне в течение минуты "
+            "после старта бота; если прошло долго — проверьте логи и доступ к TMDB."
+        )
+        return
+    if outcome.kind == RelativeOutcomeKind.NO_CANDIDATES:
+        await message.answer(
+            "Пока нечего предложить: все варианты из кэша уже в списке группы или не удалось загрузить карточки."
+        )
+        return
+
+    await send_film_search_result_cards(
+        message,
+        outcome.results,
+        intro_line=f"🎯 Подборка по просмотренным: {len(outcome.results)}\n",
+    )
 
 
 @router.message(Command("start"))
@@ -69,48 +120,18 @@ async def cmd_start(message: Message, session: AsyncSession):
 @router.message(Command("relative"))
 async def cmd_relative(message: Message, session: AsyncSession):
     """Подборка по кэшу TMDB recommendations и просмотренным в группе."""
-    user = message.from_user
-    service = UserGroupService(session)
-    db_user = await service.get_or_create_user(
-        telegram_user_id=user.id,
-        username=user.username,
-        first_name=user.first_name,
-        last_name=user.last_name,
-    )
-    membership = await service.get_user_group(db_user.id)
-    if not membership:
-        await message.answer(
-            "❌ Вы не состоите ни в одной группе.\n"
-            "Создайте группу или попросите администратора добавить вас."
-        )
-        return
+    await run_relative_suggestions(message, session)
 
-    rec = RecommendationService(session, TMDBFilmSearch())
-    outcome = await rec.build_relative_suggestions(membership.group.id)
 
-    if outcome.kind == RelativeOutcomeKind.NO_WATCHED:
-        await message.answer(
-            "📽 Сначала отметьте хотя бы один фильм как просмотренный — "
-            "тогда можно будет предложить похожее."
-        )
-        return
-    if outcome.kind == RelativeOutcomeKind.CACHE_EMPTY:
-        await message.answer(
-            "⏳ Кэш рекомендаций ещё не готов. Обычно он заполняется в фоне в течение минуты "
-            "после старта бота; если прошло долго — проверьте логи и доступ к TMDB."
-        )
-        return
-    if outcome.kind == RelativeOutcomeKind.NO_CANDIDATES:
-        await message.answer(
-            "Пока нечего предложить: все варианты из кэша уже в списке группы или не удалось загрузить карточки."
-        )
-        return
-
-    await send_film_search_result_cards(
-        message,
-        outcome.results,
-        intro_line=f"🎯 Подборка по просмотренным: {len(outcome.results)}\n",
-    )
+@router.callback_query(F.data == "relative")
+async def callback_relative_menu(callback: CallbackQuery, session: AsyncSession):
+    """Кнопка «Похожие» в главном меню."""
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await run_relative_suggestions(callback.message, session, from_user=callback.from_user)
+    await callback.answer()
 
 
 @router.message(Command("list"))

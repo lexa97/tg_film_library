@@ -59,7 +59,8 @@ def build_main_menu_keyboard(has_group: bool) -> InlineKeyboardMarkup:
     
     if has_group:
         builder.row(
-            InlineKeyboardButton(text="📋 Мой список", callback_data="list")
+            InlineKeyboardButton(text="📋 Мой список", callback_data="list"),
+            InlineKeyboardButton(text="🎯 Похожие", callback_data="relative"),
         )
     else:
         builder.row(

@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     # Pagination
     films_per_page: int = 10
 
-    # Кэш TMDB recommendations (/relative)
+    # Кэш TMDB recommendations (/relative): интервалы и пауза между запросами к API.
+    # Запуск цикла — app.main.recommendation_cache_background_loop;
+    # наполнение таблицы film_recommendation_cache —
+    # app.services.recommendation_refresh.refresh_recommendation_cache_for_all_sources.
     recommendation_cache_interval_hours: float = 24.0
     recommendation_initial_delay_sec: float = 60.0
     recommendation_tmdb_delay_sec: float = 0.35
