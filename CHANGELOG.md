@@ -1,21 +1,45 @@
 # История изменений
 
+## [Unreleased]
+
+### Добавлено
+
+#### Команда `/relative` и кэш рекомендаций TMDB
+
+- Таблица `film_recommendation_cache` и модель `FilmRecommendationCache`: связь источник (`film_id`) → пары `(recommended_external_id, recommended_media_type)`.
+- Поле `films.media_type` (`movie` / `tv`) для однозначной работы с TMDB.
+- Методы TMDB `fetch_recommendations` в провайдерах (`app/services/tmdb.py`, `app/services/tmdb_provider.py`) и в абстрактных базах (`app/services/base.py`, `app/services/film_search.py`).
+- `RecommendationService`: агрегация кэша по **просмотренным** в группе, исключение уже добавленных, топ‑5, карточки через `get_details`.
+- Фоновое обновление кэша (`recommendation_cache_background_loop` в `main.py`): первый прогон после `recommendation_initial_delay_sec`, далее не реже чем раз в `recommendation_cache_interval_hours` (по умолчанию 24 ч), пауза между запросами к TMDB — `recommendation_tmdb_delay_sec`.
+- Настройки в `config.py`: `recommendation_cache_interval_hours`, `recommendation_initial_delay_sec`, `recommendation_tmdb_delay_sec`.
+- Команда бота `/relative` и пункт меню команд; общая отправка карточек — `app/handlers/film_cards.py` (используется и при текстовом поиске).
+- Подтверждение из подборки по-прежнему через существующий `confirm_film` (в `FilmCreate` передаётся `media_type`).
+- Репозиторий `FilmRecommendationCacheRepository`, методы `GroupFilmRepository` для кэша и подборки; `FilmRepository.create_with_session` / `find_by_external` для согласованности с `GroupFilmService`.
+- Тесты: `tests/test_recommendation_service.py`.
+
+### Примечание по БД
+
+- Для уже существующей PostgreSQL после обновления кода выполните создание новых таблиц/колонок (например `initdb.py` на пустой схеме или миграция вручную: колонка `films.media_type`, таблица `film_recommendation_cache`).
+
 ## [0.2.0] - 2026-02-02
 
 ### Добавлено
 
-#### Интеграция с Prowlarr для поиска торрент-раздач
+#### Интеграция с Prowlarr для поиска и скачивания торрент-раздач
 
 - ✅ Новый сервис `ProwlarrService` для работы с Prowlarr API
 - ✅ DTO модель `TorrentResult` для представления раздач
-- ✅ Кнопка "🧲 Magnet" в результатах поиска фильмов
-- ✅ Кнопка "🧲 Magnet" в деталях фильма из списка группы
+- ✅ Кнопка "📥 Скачать" в результатах поиска фильмов
+- ✅ Кнопка "📥 Скачать" в деталях фильма из списка группы
 - ✅ Автоматический поиск раздач по названию + год
-- ✅ Фильтрация раздач по качеству (только 1080p и выше)
+- ✅ Фильтрация раздач по качеству (720p и выше)
+- ✅ Фильтрация по категориям (Movies: 2000, TV: 5000)
 - ✅ Сортировка результатов по количеству сидов
 - ✅ Отображение до 10 лучших раздач
 - ✅ Inline-клавиатура с выбором раздачи
-- ✅ Отправка magnet-ссылки в виде текста
+- ✅ Автоматическая отправка раздачи в торрент-клиент через Prowlarr API
+- ✅ Метод `push_to_download_client()` для отправки в торрент-клиент
+- ✅ Уведомления об успешной отправке или ошибке
 - ✅ Отображение информации: разрешение, источник, размер, сиды
 - ✅ Docker Compose сервис для Prowlarr
 - ✅ Конфигурация через переменные окружения (PROWLARR_URL, PROWLARR_API_KEY)

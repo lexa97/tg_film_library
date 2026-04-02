@@ -17,3 +17,10 @@ class BaseFilmSearchProvider(ABC):
     async def fetch_film(self, external_id: str, media_type: str) -> FilmCreate | None:
         """Получить полные данные фильма/сериала по id для сохранения в БД."""
         pass
+
+    @abstractmethod
+    async def fetch_recommendations(
+        self, external_id: str, media_type: str
+    ) -> list[tuple[str, str]] | None:
+        """TMDB recommendations или None при ошибке."""
+        pass

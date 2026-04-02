@@ -6,6 +6,7 @@ from app.db.repositories.group_member import GroupMemberRepository
 from app.db.repositories.film import FilmRepository
 from app.db.repositories.group_film import GroupFilmRepository
 from app.db.repositories.watched import WatchedRepository
+from app.db.repositories.recommendation_cache import FilmRecommendationCacheRepository
 
 __all__ = [
     "UserRepository",
@@ -14,4 +15,5 @@ __all__ = [
     "FilmRepository",
     "GroupFilmRepository",
     "WatchedRepository",
+    "FilmRecommendationCacheRepository",
 ]

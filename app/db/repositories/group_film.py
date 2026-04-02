@@ -149,6 +149,29 @@ class GroupFilmRepository(BaseRepository[GroupFilm]):
         )
         return result.scalar_one()
     
+    async def distinct_film_ids_in_use(self) -> list[int]:
+        """Уникальные film_id, которые есть хотя бы в одной группе (для фона кэша рекомендаций)."""
+        result = await self.session.execute(select(GroupFilm.film_id).distinct())
+        return [int(x[0]) for x in result.all()]
+
+    async def list_group_external_keys(self, group_id: int) -> set[tuple[str, str]]:
+        """Пары (external_id, media_type) фильмов уже в списке группы."""
+        result = await self.session.execute(
+            select(Film.external_id, Film.media_type)
+            .join(GroupFilm, GroupFilm.film_id == Film.id)
+            .where(GroupFilm.group_id == group_id)
+        )
+        return {(str(r[0]), str(r[1])) for r in result.all()}
+
+    async def watched_film_ids_for_group(self, group_id: int) -> list[int]:
+        """film_id просмотренных в группе title."""
+        result = await self.session.execute(
+            select(GroupFilm.film_id)
+            .join(Watched, Watched.group_film_id == GroupFilm.id)
+            .where(GroupFilm.group_id == group_id)
+        )
+        return [int(x[0]) for x in result.all()]
+
     async def search_in_group(
         self,
         group_id: int,

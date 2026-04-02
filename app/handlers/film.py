@@ -12,6 +12,7 @@ from app.services.notification import NotificationService
 from app.services.tmdb import TMDBFilmSearch
 from app.services.prowlarr import ProwlarrService
 from app.services.dto import FilmCreate
+from app.handlers.film_cards import send_film_search_result_cards
 from app.keyboards.inline import (
     build_film_confirm_keyboard,
     build_torrent_list_keyboard,
@@ -74,49 +75,11 @@ async def search_film(message: Message, session: AsyncSession):
         )
         return
     
-    # Send results
-    await message.answer(f"🔍 Найдено результатов: {len(results)}\n")
-    
-    for i, result in enumerate(results):
-        text = f"<b>{result.title}</b>"
-        if result.year:
-            text += f" ({result.year})"
-        
-        if result.title_original and result.title_original != result.title:
-            text += f"\n<i>{result.title_original}</i>"
-        
-        if result.description:
-            # Truncate long descriptions
-            desc = result.description[:300] + "..." if len(result.description) > 300 else result.description
-            text += f"\n\n{desc}"
-        
-        media_type_text = "Фильм" if result.media_type == "movie" else "Сериал"
-        text += f"\n\n📺 {media_type_text}"
-        
-        keyboard = build_film_confirm_keyboard(result, i)
-        
-        # Send with poster if available
-        if result.poster_url:
-            try:
-                await message.answer_photo(
-                    photo=result.poster_url,
-                    caption=text,
-                    parse_mode="HTML",
-                    reply_markup=keyboard
-                )
-            except Exception as e:
-                logger.error(f"Error sending photo: {e}")
-                await message.answer(
-                    text=text,
-                    parse_mode="HTML",
-                    reply_markup=keyboard
-                )
-        else:
-            await message.answer(
-                text=text,
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
+    await send_film_search_result_cards(
+        message,
+        results,
+        intro_line=f"🔍 Найдено результатов: {len(results)}\n",
+    )
 
 
 @router.callback_query(F.data.startswith("confirm_film:"))
@@ -183,6 +146,7 @@ async def confirm_film(callback: CallbackQuery, session: AsyncSession, bot: Bot)
         poster_url=film_details.poster_url,
         duration=film_details.duration,
         director=film_details.director,
+        media_type=film_details.media_type,
     )
     
     try:
@@ -247,6 +211,12 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
     # истекает позже — второй answer() даёт "query is too old". Один ответ в начале.
     await callback.answer("🔍 Ищу раздачи...")
     
+    # Отправляем отдельное сообщение о начале длительного поиска и запоминаем его ID
+    search_status_message = await callback.message.answer(
+        "⏳ Поиск раздачи начался, это может занять несколько минут.\n"
+        "Как только раздачи будут найдены — я пришлю сюда список."
+    )
+    
     # Initialize Prowlarr service
     settings = get_settings()
     prowlarr = ProwlarrService(
@@ -256,6 +226,15 @@ async def callback_download_search(callback: CallbackQuery, session: AsyncSessio
     
     # Search torrents
     torrents = await prowlarr.search_torrents(title, year, limit=10)
+    
+    # Удаляем служебное сообщение о поиске (если оно ещё существует)
+    try:
+        await callback.message.bot.delete_message(
+            chat_id=search_status_message.chat.id,
+            message_id=search_status_message.message_id,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to delete search status message: {e}")
     
     if not torrents:
         # Всплывающее окно после долгого ожидания Telegram не примет — шлём сообщением

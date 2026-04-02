@@ -56,6 +56,15 @@ def _item_to_film_create(item: dict[str, Any], media_type: str) -> FilmCreate:
     )
 
 
+def _parse_recommendation_page(data: dict[str, Any], media_type: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for item in data.get("results") or []:
+        rid = item.get("id")
+        if rid is not None:
+            out.append((str(rid), media_type))
+    return out
+
+
 class TMDBFilmSearch(BaseFilmSearchProvider):
     """Провайдер поиска фильмов и сериалов через TMDB."""
 
@@ -95,3 +104,25 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 return None
             item = r.json()
         return _item_to_film_create(item, media_type)
+
+    async def fetch_recommendations(
+        self, external_id: str, media_type: str
+    ) -> list[tuple[str, str]] | None:
+        settings = get_settings()
+        endpoint = "movie" if media_type == "movie" else "tv"
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    f"{TMDB_BASE}/{endpoint}/{external_id}/recommendations",
+                    params={
+                        "api_key": settings.TMDB_API_KEY,
+                        "language": "ru-RU",
+                        "page": 1,
+                    },
+                    timeout=10.0,
+                )
+                if r.status_code != 200:
+                    return None
+                return _parse_recommendation_page(r.json(), media_type)
+        except httpx.HTTPError:
+            return None

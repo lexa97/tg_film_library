@@ -35,25 +35,24 @@ docker-compose down
 ### 1. Установите зависимости
 
 ```bash
+# Только для работы бота
 pip install -r requirements.txt
+
+# С тестами и линтером (рекомендуется для разработки)
+pip install -r requirements-dev.txt
 ```
 
 ### 2. Настройте БД
 
 Убедитесь, что PostgreSQL запущен и доступен по адресу из `.env`.
 
-### 3. Примените миграции
+### 3. Инициализируйте БД
 
 ```bash
-alembic upgrade head
+python initdb.py
 ```
 
-Если миграции еще не созданы:
-
-```bash
-alembic revision --autogenerate -m "Initial schema"
-alembic upgrade head
-```
+Скрипт автоматически создаст все необходимые таблицы.
 
 ### 4. Запустите бота
 
@@ -108,11 +107,6 @@ docker-compose ps
 
 ### 2. Ошибка миграций
 
-Если миграции не применяются автоматически в Docker:
-```bash
-docker-compose exec bot alembic upgrade head
-```
-
 ### 3. Бот не отвечает
 
 Проверьте логи:
@@ -139,12 +133,18 @@ docker-compose logs -f bot
 4. Проверьте код: `ruff check .`
 5. Создайте pull request
 
-### Добавление миграций
+### Изменение схемы БД
 
-После изменения моделей:
+После изменения моделей в `app/db/models.py`:
+
+1. Остановите бота
+2. Для создания новых таблиц — просто перезапустите, `initdb.py` создаст их автоматически
+3. **Важно:** Скрипт не изменяет существующие таблицы
+
+Для полного пересоздания БД:
 ```bash
-alembic revision --autogenerate -m "Описание изменений"
-alembic upgrade head
+docker-compose down -v  # Удаляет том с БД
+docker-compose up -d    # Создает чистую БД
 ```
 
 ## Поддержка

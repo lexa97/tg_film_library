@@ -153,7 +153,39 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
         except Exception as e:
             logger.error(f"Unexpected error in TMDB get details: {type(e).__name__}: {e}", exc_info=True)
             return None
-    
+
+    async def fetch_recommendations(
+        self,
+        external_id: str,
+        media_type: str,
+    ) -> Optional[list[tuple[str, str]]]:
+        """Первая страница /movie|tv/{id}/recommendations."""
+        endpoint = f"{self.BASE_URL}/{media_type}/{external_id}/recommendations"
+        try:
+            client_kwargs = {"timeout": 10.0}
+            if self.proxy_url:
+                client_kwargs["proxy"] = self.proxy_url
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                response = await client.get(
+                    endpoint,
+                    params={"language": "ru", "page": 1},
+                    headers=self.headers,
+                )
+                response.raise_for_status()
+                data = response.json()
+            out: list[tuple[str, str]] = []
+            for item in data.get("results") or []:
+                rid = item.get("id")
+                if rid is not None:
+                    out.append((str(rid), media_type))
+            return out
+        except httpx.HTTPError as e:
+            logger.error("TMDB fetch_recommendations HTTP error: %s", e)
+            return None
+        except Exception as e:
+            logger.error("TMDB fetch_recommendations: %s", e, exc_info=True)
+            return None
+
     def _parse_search_result(self, item: dict[str, Any]) -> Optional[FilmSearchResult]:
         """Parse search result item.
         

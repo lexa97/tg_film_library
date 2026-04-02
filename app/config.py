@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # Pagination
     films_per_page: int = 10
 
+    # Кэш TMDB recommendations (/relative)
+    recommendation_cache_interval_hours: float = 24.0
+    recommendation_initial_delay_sec: float = 60.0
+    recommendation_tmdb_delay_sec: float = 0.35
+
 
 def get_settings() -> Settings:
     """Get application settings."""

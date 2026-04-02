@@ -8,8 +8,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from app.config import get_settings
+from app.db.database import async_session_maker
 from app.middlewares.db import DatabaseMiddleware
 from app.handlers import commands, group, member, film, list as list_handler
+from app.services.recommendation_refresh import refresh_recommendation_cache_for_all_sources
+from app.services.tmdb import TMDBFilmSearch
 
 
 # Configure logging
@@ -58,6 +61,26 @@ async def test_tmdb_connection():
         return False
 
 
+async def recommendation_cache_background_loop() -> None:
+    """Периодически обновляет film_recommendation_cache (не блокирует polling)."""
+    settings = get_settings()
+    await asyncio.sleep(settings.recommendation_initial_delay_sec)
+    search = TMDBFilmSearch()
+    interval_sec = max(3600.0, settings.recommendation_cache_interval_hours * 3600)
+    while True:
+        try:
+            async with async_session_maker() as session:
+                await refresh_recommendation_cache_for_all_sources(
+                    session,
+                    search,
+                    delay_between_requests_sec=settings.recommendation_tmdb_delay_sec,
+                )
+                await session.commit()
+        except Exception:
+            logger.exception("Фоновое обновление кэша рекомендаций завершилось с ошибкой")
+        await asyncio.sleep(interval_sec)
+
+
 async def main():
     """Main function to start the bot."""
     # Load settings
@@ -84,9 +107,12 @@ async def main():
     # Set bot commands menu
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="list", description="Список фильмов группы")
+        BotCommand(command="list", description="Список фильмов группы"),
+        BotCommand(command="relative", description="Похожие на просмотренное"),
     ])
-    
+
+    asyncio.create_task(recommendation_cache_background_loop())
+
     # Start polling
     logger.info("Starting bot...")
     try:

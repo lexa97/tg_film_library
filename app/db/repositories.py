@@ -96,9 +96,19 @@ class GroupMemberRepository:
 
 
 class FilmRepository:
-    async def find_by_external(self, session: AsyncSession, external_id: str, source: str) -> Film | None:
+    async def find_by_external(
+        self,
+        session: AsyncSession,
+        external_id: str,
+        source: str,
+        media_type: str = "movie",
+    ) -> Film | None:
         result = await session.execute(
-            select(Film).where(Film.external_id == external_id, Film.source == source)
+            select(Film).where(
+                Film.external_id == external_id,
+                Film.source == source,
+                Film.media_type == media_type,
+            )
         )
         return result.scalar_one_or_none()
 
@@ -111,7 +121,7 @@ class FilmRepository:
             year=data.year,
             description=data.description,
             poster_url=data.poster_url,
-            media_type=data.media_type,
+            media_type=getattr(data, "media_type", None) or "movie",
         )
         session.add(film)
         await session.flush()

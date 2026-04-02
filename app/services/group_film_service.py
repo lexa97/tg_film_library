@@ -50,9 +50,11 @@ class GroupFilmService:
         film_data = await self._search.fetch_film(external_id, media_type)
         if not film_data:
             return AddFilmResult(success=False, error="Не удалось загрузить данные фильма.")
-        film = await self._film.find_by_external(session, external_id, film_data.source)
+        film = await self._film.find_by_external(
+            session, external_id, film_data.source, film_data.media_type
+        )
         if not film:
-            film = await self._film.create(session, film_data)
+            film = await self._film.create_with_session(session, film_data)
         user = await self._user.get_or_create(session, telegram_user_id)
         await self._group_film.add(session, group_id, film.id, user.id)
         group = await self._group.get_by_id(session, group_id)

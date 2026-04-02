@@ -37,6 +37,7 @@ class FilmCreate(BaseModel):
     poster_url: Optional[str] = None
     duration: Optional[str] = None
     director: Optional[str] = None
+    media_type: str = "movie"
 
 
 class TorrentResult(BaseModel):

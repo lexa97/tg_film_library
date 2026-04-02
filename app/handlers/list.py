@@ -13,9 +13,56 @@ from app.services.notification import NotificationService
 from app.services.tmdb import TMDBFilmSearch
 from app.keyboards.inline import build_film_list_keyboard, build_film_detail_keyboard
 from app.config import get_settings
+from app.telegram_text import (
+    TELEGRAM_CAPTION_MAX_LEN,
+    TELEGRAM_MESSAGE_MAX_LEN,
+    truncate_telegram_caption,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _build_film_detail_text(film, is_watched: bool, max_length: int) -> str:
+    """Собрать HTML о фильме; описание укорачивается, чтобы влезть в max_length."""
+    parts: list[str] = [f"<b>{film.title}</b>"]
+    if film.year:
+        parts[0] += f" ({film.year})"
+
+    if film.title_original and film.title_original != film.title:
+        parts.append(f"<i>{film.title_original}</i>")
+
+    meta: list[str] = []
+    if film.duration:
+        meta.append(f"Длительность: {film.duration}")
+    if film.director:
+        meta.append(f"Режиссёр: {film.director}")
+    if meta:
+        parts.append("\n".join(meta))
+
+    footer = "\n\n✅ <b>Просмотрено</b>" if is_watched else ""
+    header = "\n".join(parts)
+    desc = (film.description or "").strip()
+
+    if not desc:
+        text = header + footer
+        return truncate_telegram_caption(text, max_length) if len(text) > max_length else text
+
+    sep = "\n\n"
+    room = max_length - len(header) - len(footer) - len(sep)
+    if room < 8:
+        text = header + footer
+        return truncate_telegram_caption(text, max_length) if len(text) > max_length else text
+
+    if len(desc) <= room:
+        text = header + sep + desc + footer
+    else:
+        ellipsis = "…"
+        text = header + sep + desc[: room - len(ellipsis)] + ellipsis + footer
+
+    if len(text) > max_length:
+        return truncate_telegram_caption(text, max_length)
+    return text
 router = Router()
 settings = get_settings()
 
@@ -153,55 +200,38 @@ async def callback_film_detail(callback: CallbackQuery, session: AsyncSession):
     
     film = group_film.film
     is_watched = group_film.watched is not None
-    
-    # Build text
-    text = f"<b>{film.title}</b>"
-    if film.year:
-        text += f" ({film.year})"
-    
-    if film.title_original and film.title_original != film.title:
-        text += f"\n<i>{film.title_original}</i>"
-    
-    # Дополнительные данные о фильме
-    if film.duration or film.director:
-        if film.duration:
-            text += f"\nДлительность: {film.duration}"
-        if film.director:
-            text += f"\nРежиссёр: {film.director}"
-    
-    if film.description:
-        text += f"\n\n{film.description}"
-    
-    if is_watched:
-        text += "\n\n✅ <b>Просмотрено</b>"
-    
+
     keyboard = build_film_detail_keyboard(
         group_film_id, 
         is_watched, 
         film.title, 
         film.year
     )
-    
+
+    text_caption = _build_film_detail_text(film, is_watched, TELEGRAM_CAPTION_MAX_LEN)
+    text_message = _build_film_detail_text(film, is_watched, TELEGRAM_MESSAGE_MAX_LEN)
+
     # Send with poster if available
     if film.poster_url:
         try:
             await callback.message.delete()
             await callback.message.answer_photo(
                 photo=film.poster_url,
-                caption=text,
+                caption=text_caption,
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
         except Exception as e:
             logger.error(f"Error sending photo: {e}")
-            await callback.message.edit_text(
-                text=text,
+            await callback.bot.send_message(
+                chat_id=callback.message.chat.id,
+                text=text_message,
                 parse_mode="HTML",
-                reply_markup=keyboard
+                reply_markup=keyboard,
             )
     else:
         await callback.message.edit_text(
-            text=text,
+            text=text_message,
             parse_mode="HTML",
             reply_markup=keyboard
         )
@@ -260,19 +290,16 @@ async def callback_mark_watched(callback: CallbackQuery, session: AsyncSession, 
             film_year=film.year
         )
         
-        # Update message
-        text = callback.message.caption if callback.message.caption else callback.message.text
-        if not text.endswith("✅ <b>Просмотрено</b>"):
-            text += "\n\n✅ <b>Просмотрено</b>"
-        
         try:
             if callback.message.photo:
+                text = _build_film_detail_text(film, True, TELEGRAM_CAPTION_MAX_LEN)
                 await callback.message.edit_caption(
                     caption=text,
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
             else:
+                text = _build_film_detail_text(film, True, TELEGRAM_MESSAGE_MAX_LEN)
                 await callback.message.edit_text(
                     text=text,
                     parse_mode="HTML",

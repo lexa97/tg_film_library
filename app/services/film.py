@@ -57,17 +57,16 @@ class FilmService:
         Returns:
             Film instance
         """
-        # Check if film exists
         existing = await self.film_repo.get_by_external_id(
             external_id=film_data.external_id,
-            source=film_data.source
+            source=film_data.source,
+            media_type=film_data.media_type,
         )
-        
+
         if existing:
             logger.info(f"Film already exists: {film_data.external_id}")
             return existing
-        
-        # Create new film
+
         logger.info(f"Creating new film: {film_data.title}")
         return await self.film_repo.create_film(
             external_id=film_data.external_id,
@@ -79,6 +78,7 @@ class FilmService:
             poster_url=film_data.poster_url,
             duration=film_data.duration,
             director=film_data.director,
+            media_type=film_data.media_type,
         )
     
     async def get_film_details(

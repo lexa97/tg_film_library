@@ -25,6 +25,15 @@ class BaseFilmSearchProvider(ABC):
             List of search results (up to 5), or None if API error occurred
         """
         pass
+
+    @abstractmethod
+    async def fetch_recommendations(
+        self,
+        external_id: str,
+        media_type: str,
+    ) -> Optional[list[tuple[str, str]]]:
+        """TMDB recommendations: список (external_id, media_type) или None при ошибке API."""
+        pass
     
     @abstractmethod
     async def get_details(

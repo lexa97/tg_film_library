@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, String, Text, ForeignKey, DateTime, Enum
+from sqlalchemy import BigInteger, String, Text, ForeignKey, DateTime, Enum, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 import enum
 
@@ -105,6 +105,7 @@ class Film(Base):
     poster_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     duration: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     director: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    media_type: Mapped[str] = mapped_column(String(10), default="movie")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -112,6 +113,32 @@ class Film(Base):
         "GroupFilm",
         back_populates="film"
     )
+    recommendation_rows_as_source: Mapped[list["FilmRecommendationCache"]] = relationship(
+        "FilmRecommendationCache",
+        back_populates="source_film",
+    )
+
+
+class FilmRecommendationCache(Base):
+    """Кэш TMDB recommendations: для каждого film_id (источник) — список рекомендованных id."""
+
+    __tablename__ = "film_recommendation_cache"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_film_id",
+            "recommended_external_id",
+            "recommended_media_type",
+            name="uq_film_recommendation_source_rec",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_film_id: Mapped[int] = mapped_column(ForeignKey("films.id"), index=True)
+    recommended_external_id: Mapped[str] = mapped_column(String(50))
+    recommended_media_type: Mapped[str] = mapped_column(String(10))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    source_film: Mapped["Film"] = relationship("Film", back_populates="recommendation_rows_as_source")
 
 
 class GroupFilm(Base):
