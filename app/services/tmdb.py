@@ -166,9 +166,15 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
             if self.proxy_url:
                 client_kwargs["proxy"] = self.proxy_url
             async with httpx.AsyncClient(**client_kwargs) as client:
+                # Параметр api_key обязателен для классического v3-ключа;
+                # Bearer в headers подходит для Read Access Token — оба варианта TMDB принимает.
                 response = await client.get(
                     endpoint,
-                    params={"language": "ru", "page": 1},
+                    params={
+                        "api_key": self.api_key,
+                        "language": "ru-RU",
+                        "page": 1,
+                    },
                     headers=self.headers,
                 )
                 response.raise_for_status()
@@ -179,6 +185,14 @@ class TMDBFilmSearch(BaseFilmSearchProvider):
                 if rid is not None:
                     out.append((str(rid), media_type))
             return out
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "TMDB fetch_recommendations HTTP %s для %s: %s",
+                e.response.status_code,
+                endpoint,
+                (e.response.text or "")[:400],
+            )
+            return None
         except httpx.HTTPError as e:
             logger.error("TMDB fetch_recommendations HTTP error: %s", e)
             return None

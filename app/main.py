@@ -64,6 +64,12 @@ async def test_tmdb_connection():
 async def recommendation_cache_background_loop() -> None:
     """Периодически обновляет film_recommendation_cache (не блокирует polling)."""
     settings = get_settings()
+    logger.info(
+        "Фон кэша рекомендаций: задача запущена, первый прогон через %s с "
+        "(далее каждые %s ч)",
+        settings.recommendation_initial_delay_sec,
+        settings.recommendation_cache_interval_hours,
+    )
     await asyncio.sleep(settings.recommendation_initial_delay_sec)
     search = TMDBFilmSearch()
     interval_sec = max(3600.0, settings.recommendation_cache_interval_hours * 3600)
